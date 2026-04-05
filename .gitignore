@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+#dependencies
+node_modules/
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+#.env files
+.env
+.env.*
+
+# build files
+dist/
+build/
+
+# OS files
+Thumbs.db
+
+#unwanted files
+AUTHENTICATION_MODULE_EXPLANATION.md
+DONATE_PAGE_EXPLANATION.md
+FIREBASE_AUTH_INTEGRATION_STEPS.md
+FOLDER_STRUCTURE.md
+PARTNER_SETUP.md
+setup.bat
+setup.sh
+*.md
+*.bat
+*.sh
+firebase-debug.log
+
+LICENSE
