@@ -1,9 +1,0 @@
-# Functions
-functions/node_modules/
-functions/lib/
-functions/.env
-
-# Firebase
-.firebase/
-firebase-debug.log
-firebase-debug.*.log

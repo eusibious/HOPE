@@ -1,10 +1,7 @@
 import { ethers } from "ethers";
+import HOPEFactory from "../abi/HOPEFactory.json";
 
 const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS;
-
-const FACTORY_ABI = [
-  // your ABI here
-];
 
 export const getFactoryContract = async () => {
   if (!window.ethereum) {
@@ -18,5 +15,5 @@ export const getFactoryContract = async () => {
   const provider = new ethers.BrowserProvider(window.ethereum);
   const signer = await provider.getSigner();
 
-  return new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
+  return new ethers.Contract(FACTORY_ADDRESS, HOPEFactory.abi, signer);
 };

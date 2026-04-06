@@ -49,3 +49,4 @@ setup.sh
 firebase-debug.log
 
 LICENSE
+src/lib/firebase.js

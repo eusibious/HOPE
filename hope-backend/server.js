@@ -32,13 +32,18 @@ const transporter = nodemailer.createTransport({
 // ─── Express Setup ────────────────────────────────────────────────────────────
 const app = express();
 
-app.use(express.json());
+// app.use(express.json());
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    methods: ["POST", "GET"],
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // ─── Auth Middleware ──────────────────────────────────────────────────────────
 // Verifies the Firebase ID token sent from the frontend.
@@ -244,6 +249,7 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
 });
 
 app.post("/api/upload-ipfs", async (req, res) => {
+  console.log("🔥 HIT IPFS ROUTE")
   try {
     const { fileBase64, fileName } = req.body;
 
@@ -264,8 +270,8 @@ app.post("/api/upload-ipfs", async (req, res) => {
         maxBodyLength: Infinity,
         headers: {
           ...formData.getHeaders(),
-          pinata_api_key: process.env.VITE_PINATA_API_KEY,
-          pinata_secret_api_key: process.env.VITE_PINATA_API_SECRET,
+          pinata_api_key: process.env.PINATA_API_KEY,
+          pinata_secret_api_key: process.env.PINATA_API_SECRET,
         },
       }
     );
@@ -292,6 +298,8 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`HOPE backend server running on port ${PORT}`);
 });
+
+
 
 // ─── Helper: generateTemporaryPassword ───────────────────────────────────────
 function generateTemporaryPassword() {
