@@ -293,6 +293,14 @@ app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
+app.get("/env-check", (req, res) => {
+  res.json({
+    cloudinary: process.env.CLOUDINARY_CLOUD_NAME,
+    pinata: process.env.PINATA_API_KEY ? "OK" : "Missing"
+  });
+});
+
+
 // ─── Start Server ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

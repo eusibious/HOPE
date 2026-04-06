@@ -468,6 +468,8 @@ const PartnerCreateCampaign = () => {
 
     const receipt = await tx.wait()
     console.log("✅ TX Confirmed")
+    console.log("RAW RECEIPT:", receipt);
+
 
     // =========================
     // 7. Extract Campaign Info from Event
@@ -478,29 +480,19 @@ const PartnerCreateCampaign = () => {
     // First, let's see all the logs for debugging
     console.log("📋 Total logs in receipt:", receipt.logs.length);
 
-    for (const log of receipt.logs) {
+      for (const log of receipt.logs) {
       try {
         const parsedLog = contract.interface.parseLog(log);
-        console.log("📝 Parsed log event:", parsedLog.name, parsedLog.args);
 
         if (parsedLog.name === "CampaignCreated") {
-          // Try different possible field names
-          campaignAddress = parsedLog.args.campaignAddress || 
-                           parsedLog.args.campaign || 
-                           parsedLog.args[0]; // First indexed argument
-          
-          campaignId = parsedLog.args.campaignId || 
-                      parsedLog.args.id ||
-                      parsedLog.args[1]; // Second indexed argument
-          
-          console.log("✅ Found CampaignCreated event!");
-          console.log("   - Campaign Address:", campaignAddress);
-          console.log("   - Campaign ID:", campaignId?.toString());
+          campaignAddress = parsedLog.args[0]; // safer than .campaignAddress
           break;
         }
-      } catch (err) {
-        // Ignore logs that don't match our contract's ABI
-      }
+      } catch (err) {}
+    }
+
+    if (!campaignAddress) {
+      throw new Error("CampaignCreated event not found");
     }
 
     if (!campaignAddress && !campaignId) {
