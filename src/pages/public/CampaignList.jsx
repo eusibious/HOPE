@@ -1,17 +1,55 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Pagination } from '../../components/ui'
 import SearchBar from '../../components/forms/SearchBar'
 import FilterPanel from '../../components/forms/FilterPanel'
 import { CampaignListItem, StatCard } from '../../components/common'
+import { collection, getDocs } from 'firebase/firestore'
+import { db } from '../../lib/firebase'
 
 function CampaignList() {
   const [currentPage, setCurrentPage] = useState(1)
+  const [allCampaigns, setAllCampaigns] = useState([])
+  const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filters, setFilters] = useState({
     status: [],
     fundingLevel: [],
     region: []
   })
+
+
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "campaigns"))
+
+        const data = snapshot.docs.map(doc => {
+          const d = doc.data()
+
+          return {
+            id: doc.id,
+            title: d.title,
+            location: d.location,
+            category: d.category,
+            image: d.imageUrl,
+            campaignAddress: d.campaignAddress,
+            target: `$${(Number(d.goalAmount) / 1e6).toLocaleString()}`,
+            raised: "$0", // later from blockchain
+            status: "active", // temporary
+          }
+        })
+
+        setAllCampaigns(data)
+      } catch (err) {
+        console.error("Error fetching campaigns:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchCampaigns()
+  }, [])
+
 
   const dashboardStats = [
     {
@@ -31,7 +69,6 @@ function CampaignList() {
     }
   ]
 
-  const allCampaigns = []
 
   // Helper function to calculate funding percentage
   const getFundingPercentage = (raised, target) => {
@@ -39,6 +76,8 @@ function CampaignList() {
     const targetNum = parseFloat(target.replace(/[$KM,]/g, '')) * (target.includes('M') ? 1000000 : target.includes('K') ? 1000 : 1)
     return (raisedNum / targetNum) * 100
   }
+
+    
 
   // Helper function to get region from location
   const getRegion = (location) => {
@@ -91,6 +130,16 @@ function CampaignList() {
   const totalPages = Math.ceil(filteredCampaigns.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const paginatedCampaigns = filteredCampaigns.slice(startIndex, startIndex + itemsPerPage)
+
+  if (loading) {
+  return (
+    <div className="text-center py-20">
+      <p className="text-slate-600">Loading campaigns...</p>
+    </div>
+  )
+  }
+  console.log(allCampaigns)
+
 
   return (
     <div className="py-8">
@@ -154,7 +203,7 @@ function CampaignList() {
           <>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {paginatedCampaigns.map((campaign) => (
-                <CampaignListItem key={campaign.title} {...campaign} />
+                <CampaignListItem key={campaign.campaignAddress} {...campaign} />
               ))}
             </div>
 

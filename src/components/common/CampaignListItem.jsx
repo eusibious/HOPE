@@ -2,14 +2,13 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '../ui'
 import { VerifiedBadge } from '../common'
 
-function CampaignListItem({ title, location, raised, target, ngo, verified, status }) {
+function CampaignListItem({ title, location, raised, target, ngo, verified, status, campaignAddress }) {
   const navigate = useNavigate()
   const progress = Math.min(Math.round((parseInt(raised.replace(/\D/g, '')) / parseInt(target.replace(/\D/g, ''))) * 100), 100)
 
   const handleViewCampaign = () => {
     // Create a simple ID from the title (replace spaces with hyphens and lowercase)
-    const campaignId = title.toLowerCase().replace(/\s+/g, '-')
-    navigate(`/campaigns/${campaignId}`)
+    navigate(`/campaigns/${campaignAddress}`)
   }
 
   return (

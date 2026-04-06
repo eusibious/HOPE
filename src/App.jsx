@@ -138,7 +138,7 @@ function App() {
                     <Routes>
                       <Route path="/" element={<Home />} />
                       <Route path="/campaigns" element={<CampaignList />} />
-                      <Route path="/campaigns/:id" element={<CampaignDetail />} />
+                      <Route path="/campaigns/:address" element={<CampaignDetail />} />
                       <Route path="/donate" element={<DonatePage />} />
                       <Route path="/claim-aid" element={<ClaimAid />} />
                       <Route path="/about" element={<About />} />

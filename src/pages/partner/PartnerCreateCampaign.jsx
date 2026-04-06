@@ -454,7 +454,7 @@ const PartnerCreateCampaign = () => {
       location: formData.location,
       category: formData.category,
       documentCID: cid,
-      goalAmount: parsedGoal,
+      goalAmount: parsedGoal.toString(),
       deadline: Math.floor(new Date(formData.deadline).getTime() / 1000)
     }
 
@@ -539,8 +539,8 @@ const PartnerCreateCampaign = () => {
       category: formData.category,
       imageUrl,
       documentCID: cid,
-      goalAmount: parsedGoal,
-      deadline: formData.deadline,
+      goalAmount: parsedGoal.toString(),
+      deadline: formData.deadline.toString(),
       campaignAddress,
       createdBy: userAddress,
       createdAt: serverTimestamp()
@@ -550,6 +550,8 @@ const PartnerCreateCampaign = () => {
     if (campaignId) {
       campaignData.campaignId = campaignId.toString();
     }
+
+
 
     await addDoc(collection(db, "campaigns"), campaignData);
 
