@@ -21,6 +21,14 @@ async function main() {
   const usdcAddress = await mockUSDC.getAddress();
   console.log("MockUSDC deployed at:", usdcAddress);
 
+  console.log("\nStep 1.5: Minting test USDC to deployer...");
+  const mintAmount = ethers.parseUnits("100000", 6); // 100,000 USDC
+  await mockUSDC.mint(deployer.address, mintAmount);
+
+  const usdcBalance = await mockUSDC.balanceOf(deployer.address);
+  console.log("Deployer USDC balance:", ethers.formatUnits(usdcBalance, 6), "USDC");
+
+
   console.log("\nStep 2: Deploying HOPEFactory...");
   const HOPEFactory = await ethers.getContractFactory("HOPEFactory");
   const factory = await HOPEFactory.deploy(
@@ -45,51 +53,19 @@ async function main() {
   console.log("  isPaused:         ", isPaused);
   console.log("  campaignCount:    ", count.toString());
 
-  // ── Test: create a sample campaign ─────────────────────────────────────────
-  console.log("\nStep 4: Creating a test campaign...");
-  const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 days
-  const goalAmount = ethers.parseUnits("10000", 6); // $10,000 USDC
-
-  const tx = await factory.createCampaign({
-    title:       "Kerala Flood Relief 2024",
-    description: "Help flood victims in Kerala, India",
-    location:    "Kerala, India",
-    category:    "flood-relief",
-    documentCID: "QmTestIPFSHash123",
-    goalAmount:  goalAmount,
-    deadline:    deadline,
-  });
-
-  const receipt = await tx.wait();
-  console.log("  Campaign creation tx:", receipt.hash);
-
-  const allCampaigns = await factory.getAllCampaigns();
-  const campaignAddress = allCampaigns[0];
-  console.log("  Campaign contract deployed at:", campaignAddress);
-
-  // ── Test: check campaign details ────────────────────────────────────────────
-  const HOPECampaign = await ethers.getContractFactory("HOPECampaign");
-  const campaign = HOPECampaign.attach(campaignAddress);
-  const details  = await campaign.getCampaignDetails();
-
-  console.log("\nStep 5: Campaign details from contract:");
-  console.log("  title:             ", details._title);
-  console.log("  location:          ", details._location);
-  console.log("  goalAmount:        ", ethers.formatUnits(details._goalAmount, 6), "USDC");
-  console.log("  raisedAmount:      ", ethers.formatUnits(details._raisedAmount, 6), "USDC");
-  console.log("  isActive:          ", details._isActive);
-  console.log("  beneficiaryCount:  ", details._beneficiaryCount.toString());
-
+  
   // ── Summary ─────────────────────────────────────────────────────────────────
   console.log("\n=== DEPLOYMENT COMPLETE ===");
   console.log("Network:          ", network.name);
   console.log("MockUSDC:         ", usdcAddress);
   console.log("HOPEFactory:      ", factoryAddress);
-  console.log("Test Campaign:    ", campaignAddress);
   console.log("\nAdd these to your frontend .env:");
   console.log(`VITE_FACTORY_ADDRESS=${factoryAddress}`);
   console.log(`VITE_USDC_ADDRESS=${usdcAddress}`);
   console.log(`VITE_NETWORK=localhost`);
+
+
+
 }
 
 main()

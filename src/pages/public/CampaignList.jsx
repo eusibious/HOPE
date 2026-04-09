@@ -133,7 +133,7 @@ function CampaignList() {
 
   if (loading) {
   return (
-    <div className="text-center py-20">
+    <div className="py-8 min-h-[70vh] flex items-center justify-center">
       <p className="text-slate-600">Loading campaigns...</p>
     </div>
   )

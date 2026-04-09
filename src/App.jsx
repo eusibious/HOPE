@@ -12,8 +12,6 @@ import Home from './pages/public/Home'
 import CampaignList from './pages/public/CampaignList'
 import CampaignDetail from './pages/public/CampaignDetail'
 import DonatePage from './pages/public/DonatePage'
-import CreateCampaign from './pages/public/CreateCampaign'
-import ClaimAid from './pages/public/ClaimAid'
 import About from './pages/public/About'
 import Login from './pages/auth/Login'
 import AdminLogin from './pages/auth/AdminLogin'
@@ -139,8 +137,7 @@ function App() {
                       <Route path="/" element={<Home />} />
                       <Route path="/campaigns" element={<CampaignList />} />
                       <Route path="/campaigns/:address" element={<CampaignDetail />} />
-                      <Route path="/donate" element={<DonatePage />} />
-                      <Route path="/claim-aid" element={<ClaimAid />} />
+                      <Route path="/donate/:address" element={<DonatePage />} />
                       <Route path="/about" element={<About />} />
                       <Route path="/partner-register" element={<PartnerRegistration />} />
                       <Route path="/logout" element={<Logout />} />

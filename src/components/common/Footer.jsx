@@ -28,14 +28,14 @@ function Footer() {
             </div>
             
             <div>
-              <div className="mb-4">
+              {/* <div className="mb-4">
                 <Link
                   to="/donate"
                   className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-400"
                 >
                   Donate Now
                 </Link>
-              </div>
+              </div> */}
               <div className="space-y-2">
                 <Link 
                   to="/admin/login" 

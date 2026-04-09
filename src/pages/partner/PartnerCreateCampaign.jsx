@@ -261,6 +261,7 @@ const uploadToCloudinary = async (file) => {
         body: formData,
       }
     );
+    if (!res.ok) throw new Error('Upload failed')
 
     const data = await res.json();
 
@@ -268,7 +269,7 @@ const uploadToCloudinary = async (file) => {
 
   } catch (error) {
     console.error("Cloudinary Upload Error:", error);
-    throw error;
+    throw new  Error('Network error during image upload. Please try again.');
   }
 };
 
@@ -491,9 +492,9 @@ const PartnerCreateCampaign = () => {
       } catch (err) {}
     }
 
-    if (!campaignAddress) {
-      throw new Error("CampaignCreated event not found");
-    }
+    // if (!campaignAddress) {
+    //   throw new Error("CampaignCreated event not found");
+    // }
 
     if (!campaignAddress && !campaignId) {
       // If still not found, try querying with filter
@@ -948,7 +949,7 @@ const PartnerCreateCampaign = () => {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Submit for Review
+                Submit 
               </span>
             )}
           </Button>
