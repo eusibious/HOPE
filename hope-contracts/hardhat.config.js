@@ -16,7 +16,8 @@ module.exports = {
 
   networks: {
     hardhat: {
-      chainId: 31337
+      chainId: 31337,
+      loggingEnabled: true,
     },
     amoy: {
       url: process.env.POLYGON_AMOY_RPC || "https://rpc-amoy.polygon.technology",

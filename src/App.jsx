@@ -23,6 +23,7 @@ import AdminCampaignMonitor from './pages/admin/AdminCampaignMonitor'
 import AdminCampaignDetail from './pages/admin/AdminCampaignDetail'
 import PartnerRegistration from './pages/partner/PartnerRegistration'
 import PartnerDashboard from './pages/partner/PartnerDashboard'
+import PartnerCampaigns from './pages/partner/PartnerCampaigns'
 import PartnerCreateCampaign from './pages/partner/PartnerCreateCampaign'
 import Logout from './pages/auth/Logout'
 import PartnerProfile from './pages/partner/PartnerProfile'
@@ -80,10 +81,11 @@ function App() {
                   </PartnerLayout>
                 </PartnerRoute>
               } />
+
               <Route path="/partner/campaigns" element={
-                <PartnerRoute>
+                 <PartnerRoute>
                   <PartnerLayout>
-                    <div className="p-6"><h1 className="text-2xl font-bold">Partner Campaigns</h1><p className="text-gray-600 mt-2">Manage your campaigns here.</p></div>
+                    <PartnerCampaigns />
                   </PartnerLayout>
                 </PartnerRoute>
               } />

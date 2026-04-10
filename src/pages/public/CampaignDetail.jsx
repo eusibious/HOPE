@@ -3,9 +3,8 @@ import { useEffect, useState } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../lib/firebase'
 import PreviewModal from '../../components/common/PreviewModal'
-
 import { Button } from '../../components/ui'
-import { VerifiedBadge, ProgressStat, TimelineItem, TransactionRow } from '../../components/common'
+import { VerifiedBadge, ProgressStat, TransactionRow } from '../../components/common'
 import { useNavigate } from 'react-router-dom'
 import { ethers } from 'ethers'
 import HOPECampaignABI from '../../abi/HOPECampaign.json'
@@ -18,9 +17,15 @@ function CampaignDetail() {
   const [loading, setLoading] = useState(true)
   const [showImage, setShowImage] = useState(false)
   const [showDoc, setShowDoc] = useState(false)
+  const [recentTransactions, setRecentTransactions] = useState([])
 
-  const raised = campaign?.raisedAmount || 0
-  const target = campaign?.goalAmount || 0
+  const raised = campaign?.raisedAmount
+    ? Number(ethers.formatUnits(campaign.raisedAmount, 6))
+    : 0
+
+  const target = campaign?.goalAmount
+    ? Number(ethers.formatUnits(campaign.goalAmount, 6))
+    : 0
 
   const progress = target > 0
     ? Math.min(Math.round((raised / target) * 100), 100)
@@ -29,8 +34,15 @@ function CampaignDetail() {
   // Fetch data from onchain
   const fetchOnChainData = async (address) => {
       try {
+        const rpcUrl = import.meta.env.VITE_RPC_URL
+        if (!rpcUrl) {
+          throw new Error("VITE_RPC_URL is not set")
+        }
     
-        const provider = new ethers.JsonRpcProvider(  import.meta.env.VITE_RPC_URL )
+        const provider = new ethers.JsonRpcProvider(rpcUrl)
+          
+        await provider.getNetwork()
+         
         //new ethers.JsonRpcProvider('https://mainnet.infura.io/v3/YOUR_API_KEY') Mainnet
         //new ethers.JsonRpcProvider('https://polygon-mumbai.infura.io/v3/YOUR_API_KEY') Mumbai Testnet
 
@@ -44,8 +56,8 @@ function CampaignDetail() {
         const details = await contract.getCampaignDetails()
 
         return {
-          raisedAmount: Number(ethers.formatUnits(details._raisedAmount, 6)), // 1e6,
-          goalAmount: Number(ethers.formatUnits(details._goalAmount.toString(),6)), // 1e6, Number(ethers.formatUnits(data.goalAmount.toString(), 6)),
+          raisedAmount: details._raisedAmount.toString(), // 1e6,
+          goalAmount: details._goalAmount.toString(), // 1e6, Number(ethers.formatUnits(data.goalAmount.toString(), 6)),
           isActive: details._isActive,
           beneficiaryCount: Number(details._beneficiaryCount)
         }
@@ -55,9 +67,52 @@ function CampaignDetail() {
       }
     }
 
+    //recent activity fetch
+
+    const fetchRecentActivity = async (campaignAddress) => {
+      try {
+        const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL)
+        const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider)
+
+        const donationFilter = contract.filters.DonationReceived()
+
+        const latestBlock = await provider.getBlockNumber()
+        const fromBlock = Math.max(0, latestBlock - 20)
+
+        const events = await contract.queryFilter(
+          donationFilter,
+          fromBlock,
+          latestBlock
+        )
+
+        const items = await Promise.all(
+          events.slice().reverse().map(async (event) => {
+            const block = await provider.getBlock(event.blockNumber)
+
+            return {
+              date: block?.timestamp
+                ? new Date(block.timestamp * 1000).toLocaleDateString("en-IN")
+                : "N/A",
+              campaign: "Donation",
+              from: event.args.donor,
+              to: campaignAddress,
+              amount: `$${Number(ethers.formatUnits(event.args.amount, 6)).toLocaleString()}`,
+              txHash: event.transactionHash,
+              status: "Confirmed",
+            }
+          })
+        )
+
+        setRecentTransactions(items)
+      } catch (err) {
+        console.error("Recent activity fetch failed:", err)
+        setRecentTransactions([])
+      }
+    }
+
 
   useEffect(() => {
-    let intervalId
+    //let intervalId
     const fetchCampaign = async () => {
       try {
         const snapshot = await getDocs(collection(db, "campaigns"))
@@ -73,7 +128,7 @@ function CampaignDetail() {
             location: data.location,
             description: data.description,
             imageUrl: data.imageUrl,
-            goalAmount: Number(ethers.formatUnits(data.goalAmount.toString(),6)), // 1e6, Number(ethers.formatUnits(data.goalAmount.toString(), 6)),
+            goalAmount: data.goalAmount, // 1e6, Number(ethers.formatUnits(data.goalAmount.toString(), 6)),
             createdBy: data.createdBy,
             campaignAddress: data.campaignAddress,
             category: data.category,
@@ -81,15 +136,17 @@ function CampaignDetail() {
             documentCID: data.documentCID,
             createdAt: data.createdAt,
           }
+          //fetching recent activity from blockchain
+          await fetchRecentActivity(data.campaignAddress)
 
           //  Fetch blockchain data
           const chainData = await fetchOnChainData(data.campaignAddress)
 
           setCampaign({
             ...baseData,
-            raisedAmount: chainData?.raisedAmount || 0,
-            goalAmount: chainData?.goalAmount || baseData.goalAmount,
-            isActive: chainData?.isActive,
+            raisedAmount: chainData?.raisedAmount || "0",
+            goalAmount: chainData?.goalAmount || baseData.goalAmount || "0",
+            isActive: chainData?.isActive ,
             beneficiaryCount: chainData?.beneficiaryCount || 0
           })
          
@@ -105,9 +162,9 @@ function CampaignDetail() {
     }
 
     fetchCampaign()
-    intervalId = setInterval(fetchCampaign, 10000) // Refresh every 10 seconds
 
-    return () => clearInterval(intervalId)
+   // intervalId = setInterval(fetchCampaign, 30000) // Refresh every 30 seconds
+   // return () => clearInterval(intervalId)
   }, [address])
 
     //Loading states
@@ -120,13 +177,6 @@ function CampaignDetail() {
     { label: 'Progress', value: `${progress}%` },
     { label: 'Beneficiaries', value: campaign.beneficiaryCount || 0 },
   ]
-
-
-  const timeline = []
-
-  const recentTransactions = []
-
-
 
 
   return (
@@ -189,7 +239,15 @@ function CampaignDetail() {
 
                 <div>
                   <p className="text-slate-500">Deadline</p>
-                  <p>{campaign.deadline}</p>
+                  <p>{campaign.deadline
+                    ? new Date(campaign.deadline).toLocaleDateString("en-IN", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })
+                  : "N/A"
+                  }
+                  </p>
                 </div>
 
                 <div>
@@ -294,27 +352,68 @@ function CampaignDetail() {
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
-                      Campaign
-                    </th>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 sm:px-8">
-                      Status
-                    </th>
-                  </tr>
+                      <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
+                        Addresses
+                      </th>
+                      <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">
+                        Amount / Transaction
+                      </th>
+                      <th className="px-6 py-3 text-right font-semibold text-slate-600 sm:px-8">
+                        Status
+                      </th>
+                    </tr>
                 </thead>
                 <tbody>
-                  {recentTransactions.map((tx, idx) => (
-                    <TransactionRow key={idx} {...tx} />
-                  ))}
+                    {recentTransactions.length > 0 ? (
+                      recentTransactions.map((tx, idx) => (
+                        <tr key={tx.txHash || idx} className="border-b border-slate-100 last:border-0">
+                          <td className="px-6 py-4 text-slate-700 sm:px-8 align-top">
+                            {tx.date}
+                          </td>
+
+                          <td className="px-6 py-4 text-slate-700 sm:px-8 align-top">
+                            <div className="space-y-2">
+                              <div>
+                                <p className="text-xs text-slate-500">From</p>
+                                <p className="font-mono text-xs break-all">{tx.from}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-500">To</p>
+                                <p className="font-mono text-xs break-all">{tx.to}</p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-4 sm:px-8 align-top">
+                            <div className="space-y-2">
+                              <p className="font-semibold text-emerald-600">{tx.amount}</p>
+                              <div>
+                                <p className="text-xs text-slate-500">Tx Hash</p>
+                                <p className="font-mono text-xs break-all">{tx.txHash}</p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-6 py-4 text-right sm:px-8 align-top">
+                            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                              {tx.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-6 text-sm text-slate-500 sm:px-8">
+                          No donation activity available yet.
+                        </td>
+                      </tr>
+                    )}
                 </tbody>
               </table>
-            </div>
+            </div> 
           </div>
         </div>
       </div>

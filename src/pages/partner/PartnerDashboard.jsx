@@ -31,7 +31,7 @@ const CampaignRow = ({ campaign }) => {
     : 0
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors group cursor-pointer">
+    <div className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-slate-50 transition-colors ">
       <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center flex-shrink-0">
         <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -55,9 +55,7 @@ const CampaignRow = ({ campaign }) => {
         <p className="text-sm font-bold text-slate-900">${(campaign.raised || 0).toLocaleString()}</p>
         <p className="text-xs text-slate-400">of ${(campaign.goal || 0).toLocaleString()}</p>
       </div>
-      <svg className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition-colors flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-      </svg>
+      
     </div>
   )
 }
@@ -108,6 +106,8 @@ const PartnerDashboard = () => {
   const totalRaised        = campaigns.reduce((s, c) => s + (c.raised || 0), 0)
   const totalDonors        = campaigns.reduce((s, c) => s + (c.donorCount || 0), 0)
   const totalBeneficiaries = campaigns.reduce((s, c) => s + (c.beneficiaryCount || 0), 0)
+
+  const totalCampaigns = campaigns.length
   const recentCampaigns    = [...campaigns]
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
     .slice(0, 4)
@@ -138,20 +138,6 @@ const PartnerDashboard = () => {
             Welcome back, <span className="font-semibold text-slate-700">{orgName}</span>
           </p>
         </div>
-        <button
-          onClick={() => navigate('/partner/create')}
-          disabled={!isApproved}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            isApproved
-              ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
-              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-          }`}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          New Campaign
-        </button>
       </div>
 
       {/* ── Pending Approval Banner ──────────────────────────────────────────── */}
@@ -170,9 +156,9 @@ const PartnerDashboard = () => {
       {/* ── Stats Grid ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Active Campaigns"
-          value={loading ? '—' : activeCampaigns}
-          sub={pendingCampaigns > 0 ? `${pendingCampaigns} pending review` : `${completedCampaigns} completed`}
+          label="Campaigns"
+          value={loading ? '—' : totalCampaigns}
+          sub="Total campaigns created by your organization"
           bg="bg-blue-50"
           iconColor="text-blue-600"
           icon={
@@ -236,10 +222,16 @@ const PartnerDashboard = () => {
                 <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
               </div>
             ) : recentCampaigns.length > 0 ? (
-              recentCampaigns.map(c => (
-                <Link key={c.id} to={`/partner/campaigns/${c.id}`}>
-                  <CampaignRow campaign={c} />
-                </Link>
+             recentCampaigns.map(c => (
+                <CampaignRow
+                  key={c.id}
+                  campaign={{
+                    ...c,
+                    goal: c.goalAmount ? Number(c.goalAmount) / 1e6 : 0,
+                    raised: 0,
+                    status: 'active',
+                  }}
+                />
               ))
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center px-6">

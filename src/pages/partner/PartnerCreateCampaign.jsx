@@ -6,7 +6,7 @@ import { db } from "../../lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { ethers } from "ethers";
 import { getFactoryContract } from "../../utils/contract";
-import HOPEFactory from "../../abi/HOPEFactory.json";
+// import HOPEFactory from "../../abi/HOPEFactory.json";
 
 
 
@@ -273,9 +273,6 @@ const uploadToCloudinary = async (file) => {
   }
 };
 
-//test upload functions
-
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 const PartnerCreateCampaign = () => {
   const { user, userData } = useAuth()
@@ -312,42 +309,6 @@ const PartnerCreateCampaign = () => {
       ? (Number(formData.goal) / Number(formData.beneficiaryCount)).toFixed(2)
       : null
 
-  const testUploads = async () => {
-    console.log("BUTTON CLICKED");
-
-    console.log("Image:", formData.image);
-    console.log("Docs:", formData.documents);
-
-    try {
-      if (!formData.image) {
-        alert("Please select an image first");
-        return;
-      }
-
-      if (!formData.documents) {
-        alert("Please select a document first");
-        return;
-      }
-      const file = formData.documents?.[0];
-      console.log("Actual files:", file);
-      console.log("Is file:", file instanceof File);
-
-      // ✅ FIXED HERE
-      const cid = await uploadToIPFS(file);
-      console.log("✅ IPFS CID:", cid);
-
-      const imageUrl = await uploadToCloudinary(formData.image);
-      console.log("✅ Cloudinary URL:", imageUrl);
-
-     
-
-      alert("Uploads successful!");
-
-    } catch (error) {
-      console.error("❌ Upload failed:", error);
-      alert("Upload failed");
-    }
-  }
   
   // ── Validation ──────────────────────────────────────────────────────────────
   const validateStep1 = () => {
@@ -392,187 +353,95 @@ const PartnerCreateCampaign = () => {
   setIsSubmitting(true)
 
   try {
-    console.log("🚀 Starting campaign creation...")
+    // 1. Basic validation
     if (!formData.image) throw new Error("Image is required")
-    if (!formData.documents || formData.documents.length === 0) throw new Error("Document required")
-
-    // =========================
-    // 1. Upload Image
-    // =========================
-    const imageUrl = await uploadToCloudinary(formData.image)
-    console.log("✅ Image uploaded:", imageUrl)
-
-    // =========================
-    // 2. Upload Docs to IPFS
-    // =========================
-    const cid = await uploadToIPFS(formData.documents[0])
-    console.log("✅ IPFS CID:", cid)
-
-    // =========================
-    // 3. Connect MetaMask
-    // =========================
+    if (!formData.documents || formData.documents.length === 0) {
+      throw new Error("Document required")
+    }
+    if (!formData.goal) {
+      throw new Error("Goal amount is required")
+    }
     if (!window.ethereum) {
       throw new Error("MetaMask not found")
     }
 
+    // 2. Upload assets
+    const imageUrl = await uploadToCloudinary(formData.image)
+    const cid = await uploadToIPFS(formData.documents[0])
+
+    // 3. Wallet connection
     const provider = new ethers.BrowserProvider(window.ethereum)
     const signer = await provider.getSigner()
     const userAddress = await signer.getAddress()
 
-    console.log("👤 User:", userAddress)
+    // 4. Factory contract
+    const contract = await getFactoryContract()
 
-    // =========================
-    // 4. Contract Instance
-    // =========================
-    const factoryAddress = import.meta.env.VITE_FACTORY_ADDRESS
+    // 5. Params
+    const parsedGoal = ethers.parseUnits(formData.goal.toString(), 6)
 
-    const contract = new ethers.Contract(
-      factoryAddress,
-      HOPEFactory.abi,
-      signer
-    )
-
-  console.log("💰 Goal Amount:", formData.goal);
-  const goal = formData.goal?.toString();
-
-  if (!formData.goal) {
-    alert("Please enter goal amount");
-    return;
-  }
-
-  const parsedGoal = ethers.parseUnits(
-    formData.goal.toString(),
-    6
-  );
-
-
-    // =========================
-    // 5. Prepare Params
-    // =========================
     const params = {
-      title: formData.title,
-      description: formData.description,
-      location: formData.location,
-      category: formData.category,
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      location: formData.location.trim(),
+      category:
+        formData.category === "other"
+          ? formData.customCategory.trim()
+          : formData.category,
       documentCID: cid,
-      goalAmount: parsedGoal.toString(),
-      deadline: Math.floor(new Date(formData.deadline).getTime() / 1000)
+      goalAmount: parsedGoal,
+      deadline: Math.floor(new Date(formData.deadline).getTime() / 1000),
     }
 
-    console.log("📦 Params:", params)
-
-    // =========================
-    // 6. Call Smart Contract
-    // =========================
+    // 6. Transaction
     const tx = await contract.createCampaign(params)
-    console.log("⏳ TX Sent:", tx.hash)
 
+    // 7. Receipt
     const receipt = await tx.wait()
-    console.log("✅ TX Confirmed")
-    console.log("RAW RECEIPT:", receipt);
 
+    // 8. Event parsing
+    let campaignAddress = null
 
-    // =========================
-    // 7. Extract Campaign Info from Event
-    // =========================
-    let campaignAddress = null;
-    let campaignId = null;
-
-    // First, let's see all the logs for debugging
-    console.log("📋 Total logs in receipt:", receipt.logs.length);
-
-      for (const log of receipt.logs) {
+    for (const log of receipt.logs) {
       try {
-        const parsedLog = contract.interface.parseLog(log);
-
+        const parsedLog = contract.interface.parseLog(log)
         if (parsedLog.name === "CampaignCreated") {
-          campaignAddress = parsedLog.args[0]; // safer than .campaignAddress
-          break;
+          campaignAddress = parsedLog.args[0]
+          break
         }
-      } catch (err) {}
+      } catch (_) {}
     }
 
-    // if (!campaignAddress) {
-    //   throw new Error("CampaignCreated event not found");
-    // }
-
-    if (!campaignAddress && !campaignId) {
-      // If still not found, try querying with filter
-      console.log("⚠️ Event not in logs, trying filter query...");
-      try {
-        const filter = contract.filters.CampaignCreated();
-        const events = await contract.queryFilter(
-          filter,
-          receipt.blockNumber,
-          receipt.blockNumber
-        );
-        
-        if (events.length > 0) {
-          const event = events[0];
-          campaignAddress = event.args.campaignAddress || 
-                           event.args.campaign || 
-                           event.args[0];
-          campaignId = event.args.campaignId || 
-                      event.args.id ||
-                      event.args[1];
-          console.log("✅ Found via filter query!");
-          console.log("   - Campaign Address:", campaignAddress);
-          console.log("   - Campaign ID:", campaignId?.toString());
-        } else {
-          throw new Error("CampaignCreated event not found in logs or query");
-        }
-      } catch (filterError) {
-        console.error("Filter query failed:", filterError);
-        throw new Error("CampaignCreated event not found");
-      }
+    if (!campaignAddress) {
+      throw new Error("CampaignCreated event not found in receipt logs")
     }
 
-    console.log("🎯 Final Campaign Address:", campaignAddress);
-    if (campaignId) console.log("🎯 Final Campaign ID:", campaignId.toString());
-
-    // =========================
-    // 8. Save to Firestore
-    // =========================
-    const campaignData = {
-      title: formData.title,
-      description: formData.description,
-      location: formData.location,
-      category: formData.category,
+    // 9. Save metadata
+    await addDoc(collection(db, "campaigns"), {
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      location: formData.location.trim(),
+      category:
+        formData.category === "other"
+          ? formData.customCategory.trim()
+          : formData.category,
       imageUrl,
       documentCID: cid,
       goalAmount: parsedGoal.toString(),
-      deadline: formData.deadline.toString(),
+      deadline: formData.deadline,
       campaignAddress,
+      partnerUid: user.uid,
       createdBy: userAddress,
-      createdAt: serverTimestamp()
-    };
+      createdAt: serverTimestamp(),
+    })
 
-    // Add campaignId if it exists
-    if (campaignId) {
-      campaignData.campaignId = campaignId.toString();
-    }
-
-
-
-    await addDoc(collection(db, "campaigns"), campaignData);
-
-    console.log("🔥 Saved to Firestore")
-
-    // =========================
-    // 9. Redirect
-    // =========================
+    // 10. Redirect
     navigate("/partner", {
       state: { message: "Campaign created successfully!" }
     })
-
   } catch (err) {
     console.error("❌ Campaign creation failed:", err)
-
-    alert(
-      err.reason ||
-      err.message ||
-      "Something went wrong"
-    )
+    alert(err.reason || err.message || "Something went wrong")
   } finally {
     setIsSubmitting(false)
   }
@@ -592,16 +461,6 @@ const PartnerCreateCampaign = () => {
         <p className="text-sm text-slate-500 mt-1">
           Fill in the details to launch your disaster relief campaign
         </p>
-
-        {/* Temporary button to test uploads */}
-        <button
-          type="button"
-          onClick={testUploads}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Test Upload
-        </button>
-
       </div>
 
       {/* Step Indicator */}

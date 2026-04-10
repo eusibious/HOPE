@@ -372,10 +372,6 @@ function DonatePage() {
                     )}
                   </div>
                 )}
-
-                <Button variant="ghost" className="w-full">
-                  View transaction history
-                </Button>
               </div>
             </section>
 
