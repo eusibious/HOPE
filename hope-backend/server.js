@@ -5,6 +5,7 @@ import admin from "firebase-admin";
 import nodemailer from "nodemailer";
 import axios from "axios";
 import FormData from "form-data";
+import dns from "dns/promises";
 
 
 // ─── Firebase Admin Initialization ───────────────────────────────────────────
@@ -287,6 +288,47 @@ app.post("/api/upload-ipfs", async (req, res) => {
   }
 });
 
+// ─── POST /api/validate-email-domain ───────────────────────────────────────
+app.post("/api/validate-email-domain", async (req, res) => {
+  try {
+    const email = String(req.body.email || "").trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        valid: false,
+        message: "Email is required.",
+      });
+    }
+
+    if (!isValidEmailFormat(email)) {
+      return res.status(400).json({
+        valid: false,
+        message: "Invalid email format.",
+      });
+    }
+
+    const domainIsValid = await hasValidMailDomain(email);
+
+    if (!domainIsValid) {
+      return res.status(400).json({
+        valid: false,
+        message: "Email domain is invalid or cannot receive mail.",
+      });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      message: "Email domain is valid.",
+    });
+  } catch (error) {
+    console.error("Email domain validation failed:", error);
+    return res.status(500).json({
+      valid: false,
+      message: "Unable to validate email domain right now.",
+    });
+  }
+});
+
 
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => {
@@ -300,14 +342,54 @@ app.get("/env-check", (req, res) => {
   });
 });
 
+// ─── Helper: Email Validation ───────────────────────────────────────────────
+function isValidEmailFormat(email) {
+  if (!email || typeof email !== "string") return false;
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`HOPE backend server running on port ${PORT}`);
-});
+  const value = email.trim().toLowerCase();
 
+  if (value.length > 254) return false;
+  if (value.includes(" ")) return false;
+  if (!value.includes("@")) return false;
 
+  const parts = value.split("@");
+  if (parts.length !== 2) return false;
+
+  const [local, domain] = parts;
+
+  if (!local || !domain) return false;
+  if (local.length > 64) return false;
+  if (local.includes("..") || domain.includes("..")) return false;
+  if (local.startsWith(".") || local.endsWith(".")) return false;
+  if (domain.startsWith(".") || domain.endsWith(".")) return false;
+  if (!domain.includes(".")) return false;
+
+  const domainParts = domain.split(".");
+  if (domainParts.some((part) => !part)) return false;
+
+  const tld = domainParts[domainParts.length - 1];
+  if (!/^[a-z]{2,}$/i.test(tld)) return false;
+
+  const localRegex = /^[a-z0-9._%+-]+$/i;
+  const domainRegex = /^[a-z0-9.-]+$/i;
+
+  if (!localRegex.test(local)) return false;
+  if (!domainRegex.test(domain)) return false;
+
+  return true;
+}
+
+async function hasValidMailDomain(email) {
+  const domain = email.trim().toLowerCase().split("@")[1];
+  if (!domain) return false;
+
+  try {
+    const mxRecords = await dns.resolveMx(domain);
+    return Array.isArray(mxRecords) && mxRecords.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 // ─── Helper: generateTemporaryPassword ───────────────────────────────────────
 function generateTemporaryPassword() {
@@ -319,3 +401,13 @@ function generateTemporaryPassword() {
   );
   return [...required, ...random].sort(() => Math.random() - 0.5).join("");
 }
+
+
+// ─── Start Server ─────────────────────────────────────────────────────────────
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`HOPE backend server running on port ${PORT}`);
+});
+
+
+

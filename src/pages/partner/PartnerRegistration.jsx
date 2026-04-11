@@ -2,12 +2,32 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 
+const COUNTRY_CODES = [
+  { code: '+91', label: 'India', flag: '🇮🇳' },
+  { code: '+1', label: 'United States', flag: '🇺🇸' },
+  { code: '+44', label: 'United Kingdom', flag: '🇬🇧' },
+  { code: '+61', label: 'Australia', flag: '🇦🇺' },
+  { code: '+81', label: 'Japan', flag: '🇯🇵' },
+  { code: '+971', label: 'UAE', flag: '🇦🇪' },
+  { code: '+49', label: 'Germany', flag: '🇩🇪' },
+]
+
+const isValidPhone = (phone) => {
+  if (!phone || typeof phone !== 'string') return false
+
+  const digits = phone.replace(/\D/g, '')
+
+  if (digits.length < 6 || digits.length > 12) return false
+  if (/^(\d)\1+$/.test(digits)) return false
+
+  return true
+}
+
 const isValidEmail = (email) => {
   if (!email || typeof email !== 'string') return false
 
   const value = email.trim().toLowerCase()
 
-  // basic shape check
   if (value.length > 254) return false
   if (value.includes(' ')) return false
   if (!value.includes('@')) return false
@@ -19,24 +39,17 @@ const isValidEmail = (email) => {
 
   if (!local || !domain) return false
   if (local.length > 64) return false
-
-  // reject consecutive dots
   if (local.includes('..') || domain.includes('..')) return false
-
-  // reject leading/trailing dots
   if (local.startsWith('.') || local.endsWith('.')) return false
   if (domain.startsWith('.') || domain.endsWith('.')) return false
-
-  // domain must contain at least one dot
   if (!domain.includes('.')) return false
 
   const domainParts = domain.split('.')
-  if (domainParts.some(part => !part)) return false
+  if (domainParts.some((part) => !part)) return false
 
   const tld = domainParts[domainParts.length - 1]
-  if (!/^[a-z]{2,}$/.test(tld)) return false
+  if (!/^[a-z]{2,}$/i.test(tld)) return false
 
-  // stricter allowed chars
   const localRegex = /^[a-z0-9._%+-]+$/i
   const domainRegex = /^[a-z0-9.-]+$/i
 
@@ -46,21 +59,50 @@ const isValidEmail = (email) => {
   return true
 }
 
+const initialFormData = {
+  organizationName: '',
+  contactName: '',
+  email: '',
+  phone: '',
+  countryCode: '+91',
+  description: '',
+  agree: false,
+}
+
 const PartnerRegistration = () => {
   const { submitPartnerApplication, isLoading } = useAuth()
 
-  const [formData, setFormData] = useState({
-    organizationName: '',
-    contactName: '',
-    email: '',
-    phone: '',
-    description: '',
-    agree: false,
-  })
-
+  const [formData, setFormData] = useState(initialFormData)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [success, setSuccess] = useState(false)
+
+  const backendUrl = import.meta.env.VITE_BACKEND_URL
+
+  const validateEmailDomain = async (email) => {
+    if (!backendUrl) {
+      throw new Error('VITE_BACKEND_URL is not set')
+    }
+
+    const response = await fetch(`${backendUrl}/api/validate-email-domain`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      return {
+        valid: false,
+        message: data.message || 'Email domain validation failed.',
+      }
+    }
+
+    return data
+  }
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -97,6 +139,8 @@ const PartnerRegistration = () => {
 
     if (!formData.phone.trim()) {
       errors.phone = 'Phone number is required'
+    } else if (!isValidPhone(formData.phone)) {
+      errors.phone = 'Enter a valid phone number'
     }
 
     if (!formData.description.trim()) {
@@ -108,7 +152,6 @@ const PartnerRegistration = () => {
     }
 
     setFieldErrors(errors)
-
     return Object.keys(errors).length === 0
   }
 
@@ -120,30 +163,42 @@ const PartnerRegistration = () => {
     const isValid = validateForm()
     if (!isValid) return
 
-    const payload = {
-      ...formData,
-      email: formData.email.trim().toLowerCase(),
-      organizationName: formData.organizationName.trim(),
-      contactName: formData.contactName.trim(),
-      phone: formData.phone.trim(),
-      description: formData.description.trim(),
-    }
+    try {
+      const normalizedEmail = formData.email.trim().toLowerCase()
 
-    const result = await submitPartnerApplication(payload)
+      const emailCheck = await validateEmailDomain(normalizedEmail)
 
-    if (result.success) {
-      setSuccess(true)
-      setFormData({
-        organizationName: '',
-        contactName: '',
-        email: '',
-        phone: '',
-        description: '',
-        agree: false,
-      })
-      setFieldErrors({})
-    } else {
-      setError(result.error || 'Application submission failed')
+      if (!emailCheck.valid) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          email: emailCheck.message || 'Email domain is invalid or cannot receive mail.',
+        }))
+        return
+      }
+
+      const normalizedPhone = formData.phone.replace(/\D/g, '')
+
+      const payload = {
+        ...formData,
+        email: normalizedEmail,
+        organizationName: formData.organizationName.trim(),
+        contactName: formData.contactName.trim(),
+        phone: `${formData.countryCode}${normalizedPhone}`,
+        description: formData.description.trim(),
+      }
+
+      const result = await submitPartnerApplication(payload)
+
+      if (result.success) {
+        setSuccess(true)
+        setFormData(initialFormData)
+        setFieldErrors({})
+      } else {
+        setError(result.error || 'Application submission failed')
+      }
+    } catch (err) {
+      console.error('Partner registration failed:', err)
+      setError('Unable to validate email domain right now. Please try again.')
     }
   }
 
@@ -256,18 +311,41 @@ const PartnerRegistration = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Phone Number<span className="text-red-500">*</span>
             </label>
-            <input
-              type="tel"
-              name="phone"
-              value={formData.phone}
-              onChange={handleChange}
-              required
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                fieldErrors.phone ? 'border-red-400' : 'border-gray-300'
-              }`}
-            />
-            {fieldErrors.phone && (
+
+            <div className="flex gap-2">
+              <select
+                name="countryCode"
+                value={formData.countryCode}
+                onChange={handleChange}
+                className="w-36 px-3 py-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                {COUNTRY_CODES.map((country) => (
+                  <option key={country.code} value={country.code}>
+                    {country.flag} {country.code}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                type="tel"
+                name="phone"
+                value={formData.phone}
+                onChange={handleChange}
+                required
+                inputMode="numeric"
+                className={`flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  fieldErrors.phone ? 'border-red-400' : 'border-gray-300'
+                }`}
+                placeholder="Enter phone number"
+              />
+            </div>
+
+            {fieldErrors.phone ? (
               <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-500">
+                Select the country code and enter the phone number without the country prefix.
+              </p>
             )}
           </div>
 
@@ -305,6 +383,7 @@ const PartnerRegistration = () => {
               partner application will be reviewed and approved before I can create campaigns.
             </label>
           </div>
+
           {fieldErrors.agree && (
             <p className="text-sm text-red-600">{fieldErrors.agree}</p>
           )}
