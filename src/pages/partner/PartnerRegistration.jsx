@@ -1,11 +1,54 @@
-import  { React, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+
+const isValidEmail = (email) => {
+  if (!email || typeof email !== 'string') return false
+
+  const value = email.trim().toLowerCase()
+
+  // basic shape check
+  if (value.length > 254) return false
+  if (value.includes(' ')) return false
+  if (!value.includes('@')) return false
+
+  const parts = value.split('@')
+  if (parts.length !== 2) return false
+
+  const [local, domain] = parts
+
+  if (!local || !domain) return false
+  if (local.length > 64) return false
+
+  // reject consecutive dots
+  if (local.includes('..') || domain.includes('..')) return false
+
+  // reject leading/trailing dots
+  if (local.startsWith('.') || local.endsWith('.')) return false
+  if (domain.startsWith('.') || domain.endsWith('.')) return false
+
+  // domain must contain at least one dot
+  if (!domain.includes('.')) return false
+
+  const domainParts = domain.split('.')
+  if (domainParts.some(part => !part)) return false
+
+  const tld = domainParts[domainParts.length - 1]
+  if (!/^[a-z]{2,}$/.test(tld)) return false
+
+  // stricter allowed chars
+  const localRegex = /^[a-z0-9._%+-]+$/i
+  const domainRegex = /^[a-z0-9.-]+$/i
+
+  if (!localRegex.test(local)) return false
+  if (!domainRegex.test(domain)) return false
+
+  return true
+}
 
 const PartnerRegistration = () => {
   const { submitPartnerApplication, isLoading } = useAuth()
-  const navigate = useNavigate()
-  
+
   const [formData, setFormData] = useState({
     organizationName: '',
     contactName: '',
@@ -14,16 +57,59 @@ const PartnerRegistration = () => {
     description: '',
     agree: false,
   })
-  
+
   const [error, setError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
   const [success, setSuccess] = useState(false)
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: type === 'checkbox' ? checked : value,
     }))
+
+    setFieldErrors((prev) => ({
+      ...prev,
+      [name]: '',
+    }))
+
+    setError('')
+  }
+
+  const validateForm = () => {
+    const errors = {}
+
+    if (!formData.organizationName.trim()) {
+      errors.organizationName = 'Organization name is required'
+    }
+
+    if (!formData.contactName.trim()) {
+      errors.contactName = 'Contact name is required'
+    }
+
+    if (!formData.email.trim()) {
+      errors.email = 'Email address is required'
+    } else if (!isValidEmail(formData.email)) {
+      errors.email = 'Enter a valid email with a proper domain, for example name@company.org'
+    }
+
+    if (!formData.phone.trim()) {
+      errors.phone = 'Phone number is required'
+    }
+
+    if (!formData.description.trim()) {
+      errors.description = 'Organization description is required'
+    }
+
+    if (!formData.agree) {
+      errors.agree = 'Please agree to the terms and conditions'
+    }
+
+    setFieldErrors(errors)
+
+    return Object.keys(errors).length === 0
   }
 
   const handleSubmit = async (e) => {
@@ -31,23 +117,22 @@ const PartnerRegistration = () => {
     setError('')
     setSuccess(false)
 
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match')
-      return
+    const isValid = validateForm()
+    if (!isValid) return
+
+    const payload = {
+      ...formData,
+      email: formData.email.trim().toLowerCase(),
+      organizationName: formData.organizationName.trim(),
+      contactName: formData.contactName.trim(),
+      phone: formData.phone.trim(),
+      description: formData.description.trim(),
     }
 
-    // Check agreement
-    if (!formData.agree) {
-      setError('Please agree to the terms and conditions')
-      return
-    }
+    const result = await submitPartnerApplication(payload)
 
-    const result = await submitPartnerApplication(formData)
-    
     if (result.success) {
       setSuccess(true)
-      // Reset form
       setFormData({
         organizationName: '',
         contactName: '',
@@ -56,6 +141,7 @@ const PartnerRegistration = () => {
         description: '',
         agree: false,
       })
+      setFieldErrors({})
     } else {
       setError(result.error || 'Application submission failed')
     }
@@ -64,12 +150,11 @@ const PartnerRegistration = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center p-4">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl border border-gray-100 p-8">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="flex items-center justify-center mb-4">
             <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
               <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
           </div>
@@ -79,7 +164,6 @@ const PartnerRegistration = () => {
           </p>
         </div>
 
-        {/* Success Message */}
         {success && (
           <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
             <div className="flex items-start gap-3">
@@ -87,25 +171,22 @@ const PartnerRegistration = () => {
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <div>
-                <p className="text-sm font-medium text-green-800">Application Submitted Successfully!</p>
+                <p className="text-sm font-medium text-green-800">Application Submitted Successfully</p>
                 <p className="mt-1 text-sm text-green-700">
-                  Your partner application has been submitted for review. We'll contact you via email once it has been processed by our admin team.
+                  Your partner application has been submitted for review. We will contact you via email once it has been processed by the admin team.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Error Message */}
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
             {error}
           </div>
         )}
 
-        {/* Registration Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Organization Name */}
+        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Organization Name<span className="text-red-500">*</span>
@@ -116,13 +197,16 @@ const PartnerRegistration = () => {
               value={formData.organizationName}
               onChange={handleChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder=""
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                fieldErrors.organizationName ? 'border-red-400' : 'border-gray-300'
+              }`}
             />
+            {fieldErrors.organizationName && (
+              <p className="mt-1 text-sm text-red-600">{fieldErrors.organizationName}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Contact Name */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Contact Name<span className="text-red-500">*</span>
@@ -133,12 +217,15 @@ const PartnerRegistration = () => {
                 value={formData.contactName}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder=""
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  fieldErrors.contactName ? 'border-red-400' : 'border-gray-300'
+                }`}
               />
+              {fieldErrors.contactName && (
+                <p className="mt-1 text-sm text-red-600">{fieldErrors.contactName}</p>
+              )}
             </div>
 
-            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address<span className="text-red-500">*</span>
@@ -149,13 +236,22 @@ const PartnerRegistration = () => {
                 value={formData.email}
                 onChange={handleChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder=""
+                autoComplete="email"
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  fieldErrors.email ? 'border-red-400' : 'border-gray-300'
+                }`}
+                placeholder="name@organization.org"
               />
+              {fieldErrors.email ? (
+                <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>
+              ) : (
+                <p className="mt-1 text-xs text-gray-500">
+                  Use a real email address you can access. This will be used for onboarding and password reset.
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Phone */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Phone Number<span className="text-red-500">*</span>
@@ -166,12 +262,15 @@ const PartnerRegistration = () => {
               value={formData.phone}
               onChange={handleChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder=""
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                fieldErrors.phone ? 'border-red-400' : 'border-gray-300'
+              }`}
             />
+            {fieldErrors.phone && (
+              <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>
+            )}
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Organization Description<span className="text-red-500">*</span>
@@ -182,14 +281,16 @@ const PartnerRegistration = () => {
               onChange={handleChange}
               required
               rows={4}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                fieldErrors.description ? 'border-red-400' : 'border-gray-300'
+              }`}
               placeholder="Describe your organization, mission, and what type of campaigns you plan to create..."
             />
+            {fieldErrors.description && (
+              <p className="mt-1 text-sm text-red-600">{fieldErrors.description}</p>
+            )}
           </div>
 
-          
-
-          {/* Agreement Checkbox */}
           <div className="flex items-start space-x-3">
             <input
               type="checkbox"
@@ -199,12 +300,15 @@ const PartnerRegistration = () => {
               className="mt-1 h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
             />
             <label className="text-sm text-gray-700">
-              I agree to the <Link to="/terms" className="text-blue-600 hover:underline">Terms of Service</Link> and <Link to="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>. 
-              I understand that my partner application will be reviewed and approved before I can create campaigns.
+              I agree to the <Link to="/terms" className="text-blue-600 hover:underline">Terms of Service</Link> and{' '}
+              <Link to="/privacy" className="text-blue-600 hover:underline">Privacy Policy</Link>. I understand that my
+              partner application will be reviewed and approved before I can create campaigns.
             </label>
           </div>
+          {fieldErrors.agree && (
+            <p className="text-sm text-red-600">{fieldErrors.agree}</p>
+          )}
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={isLoading}
@@ -226,7 +330,6 @@ const PartnerRegistration = () => {
           </button>
         </form>
 
-        {/* Footer Links */}
         <div className="mt-8 text-center">
           <p className="text-sm text-gray-600">
             Already have an account?{' '}

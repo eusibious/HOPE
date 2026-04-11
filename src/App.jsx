@@ -24,6 +24,7 @@ import AdminCampaignDetail from './pages/admin/AdminCampaignDetail'
 import PartnerRegistration from './pages/partner/PartnerRegistration'
 import PartnerDashboard from './pages/partner/PartnerDashboard'
 import PartnerCampaigns from './pages/partner/PartnerCampaigns'
+import PartnerCampaignDetail from './pages/partner/PartnerCampaignDetail'
 import PartnerCreateCampaign from './pages/partner/PartnerCreateCampaign'
 import Logout from './pages/auth/Logout'
 import PartnerProfile from './pages/partner/PartnerProfile'
@@ -89,6 +90,16 @@ function App() {
                   </PartnerLayout>
                 </PartnerRoute>
               } />
+
+              <Route path="/partner/campaigns/:campaignAddress" element={
+                    <PartnerRoute>
+                      <PartnerLayout>
+                        <PartnerCampaignDetail />
+                      </PartnerLayout>
+                    </PartnerRoute>
+                  }
+                />
+
               <Route path="/partner/create" element={
                 <PartnerRoute>
                   <PartnerLayout>
