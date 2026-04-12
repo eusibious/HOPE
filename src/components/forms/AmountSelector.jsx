@@ -50,27 +50,6 @@ function AmountSelector({ value, onChange }) {
         />
       </div>
 
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Quick amounts
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {presetAmounts.map((amount) => (
-            <button
-              key={amount}
-              type="button"
-              onClick={() => handlePresetClick(amount)}
-              className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-all ${
-                value === amount
-                  ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                  : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
-              }`}
-            >
-              ${amount}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

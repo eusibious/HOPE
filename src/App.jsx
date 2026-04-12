@@ -26,6 +26,8 @@ import PartnerDashboard from './pages/partner/PartnerDashboard'
 import PartnerCampaigns from './pages/partner/PartnerCampaigns'
 import PartnerCampaignDetail from './pages/partner/PartnerCampaignDetail'
 import PartnerCreateCampaign from './pages/partner/PartnerCreateCampaign'
+import PartnerBeneficiaries from './pages/partner/PartnerBeneficiaries'
+import PartnerBeneficiaryRegister from './pages/partner/PartnerBeneficiaryRegister'
 import Logout from './pages/auth/Logout'
 import PartnerProfile from './pages/partner/PartnerProfile'
 
@@ -107,20 +109,43 @@ function App() {
                   </PartnerLayout>
                 </PartnerRoute>
               } />
-              <Route path="/partner/beneficiaries" element={
-                <PartnerRoute>
-                  <PartnerLayout>
-                    <div className="p-6"><h1 className="text-2xl font-bold">Beneficiaries</h1><p className="text-gray-600 mt-2">Manage beneficiaries here.</p></div>
-                  </PartnerLayout>
-                </PartnerRoute>
-              } />
-              <Route path="/partner/claims" element={
-                <PartnerRoute>
-                  <PartnerLayout>
-                    <div className="p-6"><h1 className="text-2xl font-bold">Claims</h1><p className="text-gray-600 mt-2">View and manage claims here.</p></div>
-                  </PartnerLayout>
-                </PartnerRoute>
-              } />
+
+              <Route
+                path="/partner/campaigns/:campaignAddress/beneficiaries/register"
+                element={
+                  <PartnerRoute>
+                    <PartnerLayout>
+                      <PartnerBeneficiaryRegister />
+                    </PartnerLayout>
+                  </PartnerRoute>
+                }
+              />
+
+              <Route
+                path="/partner/campaigns/:campaignAddress/beneficiaries"
+                element={
+                  <PartnerRoute>
+                    <PartnerLayout>
+                      <PartnerBeneficiaries />
+                    </PartnerLayout>
+                  </PartnerRoute>
+                }
+              />
+
+              <Route
+                path="/partner/campaigns/:campaignAddress/claims"
+                element={
+                  <PartnerRoute>
+                    <PartnerLayout>
+                      <div className="p-6">
+                        <h1 className="text-2xl font-bold">Claims</h1>
+                        <p className="text-gray-600 mt-2">View and manage claims here.</p>
+                      </div>
+                    </PartnerLayout>
+                  </PartnerRoute>
+                }
+              />
+              
               <Route path="/partner/analytics" element={
                 <PartnerRoute>
                   <PartnerLayout>

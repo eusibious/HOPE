@@ -23,7 +23,6 @@ const formatDate = (value) => {
     })
   }
 
-  // Handle unix timestamp string from chain
   const asString = value.toString()
   if (/^\d+$/.test(asString)) {
     return new Date(Number(asString) * 1000).toLocaleDateString("en-IN", {
@@ -438,6 +437,7 @@ const PartnerCampaignDetail = () => {
           campaignAddress,
           imageUrl: data.imageUrl || "",
           documentCID: details._documentCID || data.documentCID || "",
+          partnerWallet: details._partner,
           status: derivedStatus,
           goalAmount: details._goalAmount.toString(),
           raisedAmount: details._raisedAmount.toString(),
@@ -613,8 +613,18 @@ const PartnerCampaignDetail = () => {
               <DetailRow label="Category" value={campaign.category ?? "—"} />
               <DetailRow label="Created At" value={formatDate(campaign.createdAt)} />
               <DetailRow label="Deadline" value={formatDate(campaign.deadline)} />
-              <DetailRow label="Partner Wallet" value={campaign.createdBy ? <span className="font-mono text-xs text-gray-500">{campaign.createdBy}</span> : "—"} />
-              <DetailRow label="Campaign Address" value={<span className="font-mono text-xs text-gray-500">{campaignAddress}</span>} />
+              <DetailRow
+                label="Partner Wallet"
+                value={
+                  campaign.partnerWallet ? (
+                    <span className="font-mono text-xs text-gray-500">{campaign.partnerWallet}</span>
+                  ) : "—"
+                }
+              />
+              <DetailRow
+                label="Campaign Address"
+                value={<span className="font-mono text-xs text-gray-500">{campaignAddress}</span>}
+              />
               {campaign.documentCID && (
                 <DetailRow
                   label="IPFS Document"
@@ -640,22 +650,24 @@ const PartnerCampaignDetail = () => {
             <div className="space-y-3">
               <QuickActionButton
                 icon={Icons.register}
-                label="Register Beneficiary"
-                description="Add a new beneficiary to this campaign"
+                label="Register Beneficiaries"
+                description="Add beneficiaries and submit the registration batch"
                 onClick={() => navigate(`/partner/campaigns/${campaignAddress}/beneficiaries/register`)}
                 variant="primary"
               />
+
               <QuickActionButton
                 icon={Icons.view}
-                label="View Beneficiaries"
-                description="See all registered beneficiaries"
+                label="View Registered Beneficiaries"
+                description="See all beneficiaries already recorded for this campaign"
                 onClick={() => navigate(`/partner/campaigns/${campaignAddress}/beneficiaries`)}
               />
+
               <QuickActionButton
                 icon={Icons.claim}
                 label="Manage Aid Claims"
                 description="Review and process aid claims"
-                onClick={() => navigate(`/partner/campaigns/${campaignAddress}/claims`)}
+                onClick={() => navigate(`/partner/claims`)}
               />
             </div>
           </div>
