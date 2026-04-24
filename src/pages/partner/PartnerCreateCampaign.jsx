@@ -191,12 +191,12 @@ const CATEGORIES = [
   { value: 'other',                 label: 'Other' },
 ]
 
-const URGENCY_LEVELS = [
-  { value: 'low',      label: 'Low — Regular timeline' },
-  { value: 'medium',   label: 'Medium — Important' },
-  { value: 'high',     label: 'High — Urgent' },
-  { value: 'critical', label: 'Critical — Emergency' },
-]
+// const URGENCY_LEVELS = [
+//   { value: 'low',      label: 'Low — Regular timeline' },
+//   { value: 'medium',   label: 'Medium — Important' },
+//   { value: 'high',     label: 'High — Urgent' },
+//   { value: 'critical', label: 'Critical — Emergency' },
+// ]
 
 const URGENCY_BADGE = {
   low:      'bg-slate-100 text-slate-600',
@@ -369,51 +369,56 @@ const PartnerCreateCampaign = () => {
     const imageUrl = await uploadToCloudinary(formData.image)
     const cid = await uploadToIPFS(formData.documents[0])
 
-    // 3. Wallet connection
+   // handleSubmit — replace steps 3-8 with this
+
+    // 3. Wallet + signer
     const provider = new ethers.BrowserProvider(window.ethereum)
     const signer = await provider.getSigner()
-    const userAddress = await signer.getAddress()
+    const userAddress = await signer.getAddress()  // ← add this line back
 
-    // 4. Factory contract
-    const contract = await getFactoryContract()
+    // 4. Get contract connected to signer (not read-only provider)
+    const factoryReadOnly = await getFactoryContract()   // has address + ABI
+    const contract = factoryReadOnly.connect(signer)     // now can sign + parse
 
-    // 5. Params
+    // 5. Params (unchanged)
     const parsedGoal = ethers.parseUnits(formData.goal.toString(), 6)
-
     const params = {
-      title: formData.title.trim(),
+      title:       formData.title.trim(),
       description: formData.description.trim(),
-      location: formData.location.trim(),
-      category:
-        formData.category === "other"
-          ? formData.customCategory.trim()
-          : formData.category,
+      location:    formData.location.trim(),
+      category:    formData.category === "other" ? formData.customCategory.trim() : formData.category,
       documentCID: cid,
-      goalAmount: parsedGoal,
-      deadline: Math.floor(new Date(formData.deadline).getTime() / 1000),
+      goalAmount:  parsedGoal,
+      deadline:    Math.floor(new Date(formData.deadline).getTime() / 1000),
     }
 
-    // 6. Transaction
-    const tx = await contract.createCampaign(params)
+    // 6. Send tx with explicit gas (avoids the StackOverflow eth_call estimation)
+    const tx = await contract.createCampaign(params, { gasLimit: 5_000_000 })
 
-    // 7. Receipt
+    // 7. Wait for receipt
     const receipt = await tx.wait()
+    console.log("All logs:", receipt.logs)
 
-    // 8. Event parsing
+    // 8. Parse event — use the interface directly, not contract.interface
+    //    This handles the case where the log comes from a different address
+    const iface = new ethers.Interface(contract.interface.fragments)
     let campaignAddress = null
 
     for (const log of receipt.logs) {
       try {
-        const parsedLog = contract.interface.parseLog(log)
-        if (parsedLog.name === "CampaignCreated") {
-          campaignAddress = parsedLog.args[0]
+        const parsed = iface.parseLog({ topics: log.topics, data: log.data })
+        if (parsed?.name === "CampaignCreated") {
+          campaignAddress = parsed.args[0]   // campaignAddress is first indexed arg
+          console.log("✅ Campaign deployed at:", campaignAddress)
           break
         }
-      } catch (_) {}
+      } catch {
+        // log belongs to HOPECampaign constructor — skip it
+      }
     }
 
     if (!campaignAddress) {
-      throw new Error("CampaignCreated event not found in receipt logs")
+      throw new Error("CampaignCreated event not found in receipt. Is FACTORY_ADDRESS pointing to the latest deployment?")
     }
 
     // 9. Save metadata
@@ -590,7 +595,7 @@ const PartnerCreateCampaign = () => {
               </Field>
 
               {/* Urgency */}
-              <Field label="Urgency Level" required error={errors.urgency}>
+              {/* <Field label="Urgency Level" required error={errors.urgency}>
                 <Select
                   value={formData.urgency}
                   onChange={e => set('urgency', e.target.value)}
@@ -602,7 +607,7 @@ const PartnerCreateCampaign = () => {
                     {URGENCY_LEVELS.find(u => u.value === formData.urgency)?.label}
                   </span>
                 )}
-              </Field>
+              </Field> */}
 
             </div>
           </Section>
@@ -725,7 +730,7 @@ const PartnerCreateCampaign = () => {
               <ReviewRow label="Funding Goal"     value={formData.goal ? `$${Number(formData.goal).toLocaleString()} USDC` : ''} highlight />
               <ReviewRow label="Beneficiaries"    value={formData.beneficiaryCount ? `${Number(formData.beneficiaryCount).toLocaleString()} people` : ''} />
               <ReviewRow label="Per Beneficiary"  value={perBeneficiary ? `$${perBeneficiary} USDC` : ''} highlight />
-              <ReviewRow label="Urgency"          value={URGENCY_LEVELS.find(u => u.value === formData.urgency)?.label} />
+              {/* <ReviewRow label="Urgency"          value={URGENCY_LEVELS.find(u => u.value === formData.urgency)?.label} /> */}
               <ReviewRow label="Organisation"     value={orgName} />
               <ReviewRow label="Documents"        value={formData.documents.length > 0 ? `${formData.documents.length} file(s) — will upload to IPFS` : 'None'} />
             </div>

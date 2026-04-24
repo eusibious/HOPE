@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -29,37 +29,44 @@ const formatDate = (value) => {
   });
 };
 
-const truncateMiddle = (value, start = 8, end = 6) => {
-  if (!value || value.length <= start + end) return value || "—";
+const truncateMiddle = (value, start = 10, end = 8) => {
+  if (!value) return "—";
+  if (value.length <= start + end) return value;
   return `${value.slice(0, start)}…${value.slice(-end)}`;
 };
 
-const maskGovernmentId = (value) => {
+const maskIdNumber = (value) => {
   if (!value) return "—";
   if (value.length <= 4) return value;
   return `${"*".repeat(Math.max(value.length - 4, 1))}${value.slice(-4)}`;
 };
 
-const maskPhone = (value) => {
-  if (!value) return "—";
-  const digits = String(value).replace(/\D/g, "");
-  if (digits.length <= 4) return digits || value;
-  return `${"*".repeat(Math.max(digits.length - 4, 1))}${digits.slice(-4)}`;
+const getStatusLabel = (beneficiary) => {
+  if (beneficiary.claimed === true || beneficiary.status === "claimed") {
+    return "Claimed";
+  }
+
+  if (beneficiary.onChainRegistered) {
+    return "Registered On-Chain";
+  }
+
+  return "Draft";
 };
 
-const StatusBadge = ({ status = "registered" }) => {
-  const map = {
-    registered: "bg-blue-50 text-blue-700 border-blue-200",
-    claimed: "bg-green-50 text-green-700 border-green-200",
+const StatusBadge = ({ beneficiary }) => {
+  const label = getStatusLabel(beneficiary);
+
+  const styles = {
+    Draft: "bg-blue-50 text-blue-700 border-blue-200",
+    "Registered On-Chain": "bg-amber-50 text-amber-700 border-amber-200",
+    Claimed: "bg-green-50 text-green-700 border-green-200",
   };
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${
-        map[status] || "bg-slate-50 text-slate-700 border-slate-200"
-      }`}
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${styles[label] || "bg-slate-50 text-slate-700 border-slate-200"}`}
     >
-      {status}
+      {label}
     </span>
   );
 };
@@ -73,7 +80,7 @@ function PartnerBeneficiaries() {
   const [beneficiaries, setBeneficiaries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [copiedHash, setCopiedHash] = useState("");
+  const [copiedValue, setCopiedValue] = useState("");
 
   useEffect(() => {
     const loadData = async () => {
@@ -111,19 +118,9 @@ function PartnerBeneficiaries() {
 
         setCampaign(campaignDoc);
 
-        let beneficiarySnap;
-        try {
-          beneficiarySnap = await getDocs(
-            query(
-              collection(db, "campaigns", campaignDoc.id, "beneficiaries"),
-              orderBy("createdAt", "desc")
-            )
-          );
-        } catch {
-          beneficiarySnap = await getDocs(
-            collection(db, "campaigns", campaignDoc.id, "beneficiaries")
-          );
-        }
+        const beneficiarySnap = await getDocs(
+          collection(db, "campaigns", campaignDoc.id, "beneficiaries")
+        );
 
         const rows = beneficiarySnap.docs.map((doc) => ({
           id: doc.id,
@@ -150,24 +147,27 @@ function PartnerBeneficiaries() {
 
   const summary = useMemo(() => {
     const total = beneficiaries.length;
+    const draft = beneficiaries.filter((b) => !b.onChainRegistered && !(b.claimed === true || b.status === "claimed")).length;
+    const registeredOnChain = beneficiaries.filter((b) => b.onChainRegistered && !(b.claimed === true || b.status === "claimed")).length;
     const claimed = beneficiaries.filter((b) => b.claimed === true || b.status === "claimed").length;
-    const registered = total - claimed;
 
-    return { total, claimed, registered };
+    return { total, draft, registeredOnChain, claimed };
   }, [beneficiaries]);
 
-  const handleCopy = async (text) => {
+  const handleCopy = async (value) => {
+    if (!value) return;
+
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedHash(text);
-      setTimeout(() => setCopiedHash(""), 1500);
+      await navigator.clipboard.writeText(value);
+      setCopiedValue(value);
+      setTimeout(() => setCopiedValue(""), 1500);
     } catch (err) {
       console.error("Copy failed:", err);
     }
   };
 
   if (loading) {
-    return <div className="p-6 max-w-7xl mx-auto">Loading registered beneficiaries...</div>;
+    return <div className="p-6 max-w-7xl mx-auto">Loading beneficiary records...</div>;
   }
 
   return (
@@ -184,22 +184,22 @@ function PartnerBeneficiaries() {
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Registered Beneficiaries</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Beneficiary Records</h1>
           <p className="text-sm text-slate-500 mt-1">
             {campaign?.title || "Campaign"} {campaign?.location ? `— ${campaign.location}` : ""}
           </p>
-          <p className="text-xs text-slate-400 mt-2 font-mono break-all">
-            {campaignAddress}
-          </p>
+          <p className="text-xs text-slate-400 mt-2 font-mono break-all">{campaignAddress}</p>
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <Link
-            to={`/partner/campaigns/${campaignAddress}/beneficiaries/register`}
-            className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            Register Beneficiaries
-          </Link>
+          {!campaign?.beneficiariesLocked && (
+            <Link
+              to={`/partner/campaigns/${campaignAddress}/beneficiaries/register`}
+              className="inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Register Beneficiary
+            </Link>
+          )}
         </div>
       </div>
 
@@ -211,25 +211,24 @@ function PartnerBeneficiaries() {
 
       {!error && (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Total Records
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Records</p>
               <p className="mt-2 text-2xl font-bold text-slate-900">{summary.total}</p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Registered
-              </p>
-              <p className="mt-2 text-2xl font-bold text-blue-700">{summary.registered}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Draft</p>
+              <p className="mt-2 text-2xl font-bold text-blue-700">{summary.draft}</p>
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Claimed
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Registered On-Chain</p>
+              <p className="mt-2 text-2xl font-bold text-amber-700">{summary.registeredOnChain}</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Claimed</p>
               <p className="mt-2 text-2xl font-bold text-green-700">{summary.claimed}</p>
             </div>
           </div>
@@ -239,7 +238,7 @@ function PartnerBeneficiaries() {
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">Beneficiary Records</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Stored in Firestore for this campaign.
+                  Firestore operational records for this campaign.
                 </p>
               </div>
             </div>
@@ -250,12 +249,14 @@ function PartnerBeneficiaries() {
                 <p className="text-sm text-slate-500 mt-1">
                   Start by registering beneficiaries for this campaign.
                 </p>
-                <Link
-                  to={`/partner/campaigns/${campaignAddress}/beneficiaries/register`}
-                  className="mt-4 inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                >
-                  Go to Register Page
-                </Link>
+                {!campaign?.beneficiariesLocked && (
+                  <Link
+                    to={`/partner/campaigns/${campaignAddress}/beneficiaries/register`}
+                    className="mt-4 inline-flex items-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    Go to Register Page
+                  </Link>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -266,22 +267,19 @@ function PartnerBeneficiaries() {
                         Beneficiary
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Phone
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Government ID
+                        Identity
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Status
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Claim Hash
+                        Claim
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Claim Code
+                        Record Trail
                       </th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Registered At
+                        Created
                       </th>
                     </tr>
                   </thead>
@@ -290,55 +288,98 @@ function PartnerBeneficiaries() {
                     {beneficiaries.map((b) => (
                       <tr key={b.id} className="align-top">
                         <td className="px-5 py-4">
-                          <div className="text-sm font-medium text-slate-900">
-                            {b.fullName || "—"}
+                          <div className="flex items-start gap-3">
+                            {b.photoUrl ? (
+                              <img
+                                src={b.photoUrl}
+                                alt={b.fullName || "Beneficiary"}
+                                className="h-12 w-12 rounded-lg object-cover border border-slate-200"
+                              />
+                            ) : (
+                              <div className="h-12 w-12 rounded-lg border border-slate-200 bg-slate-100" />
+                            )}
+
+                            <div>
+                              <div className="text-sm font-medium text-slate-900">
+                                {b.fullName || "—"}
+                              </div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                Age: {b.age ?? "—"} • Gender: {b.gender || "—"}
+                              </div>
+                            </div>
                           </div>
+                        </td>
+
+                        <td className="px-5 py-4 text-sm text-slate-700">
+                          <div>{b.idType || "—"}</div>
                           <div className="mt-1 text-xs text-slate-500">
-                            Aid amount: {b.aidAmount || "—"}
+                            {maskIdNumber(b.idNumber)}
                           </div>
-                        </td>
-
-                        <td className="px-5 py-4 text-sm text-slate-700">
-                          {maskPhone(b.phone)}
-                        </td>
-
-                        <td className="px-5 py-4 text-sm text-slate-700">
-                          {maskGovernmentId(b.governmentId)}
                         </td>
 
                         <td className="px-5 py-4">
                           <div className="flex flex-col gap-2">
-                            <StatusBadge status={b.status || (b.claimed ? "claimed" : "registered")} />
+                            <StatusBadge beneficiary={b} />
                             <span className="text-xs text-slate-500">
-                              Claimed: {b.claimed ? "Yes" : "No"}
+                              On-chain: {b.onChainRegistered ? "Yes" : "No"}
                             </span>
+                            {b.registrationTxHash && (
+                              <span className="text-[11px] font-mono text-slate-400 break-all">
+                                Tx: {truncateMiddle(b.registrationTxHash, 12, 8)}
+                              </span>
+                            )}
                           </div>
                         </td>
 
                         <td className="px-5 py-4">
-                          <div className="flex items-start gap-2">
-                            <span className="font-mono text-xs text-slate-700 break-all">
-                              {truncateMiddle(b.claimHash, 10, 8)}
-                            </span>
-                            {b.claimHash && (
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(b.claimHash)}
-                                className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-                              >
-                                {copiedHash === b.claimHash ? "Copied" : "Copy"}
-                              </button>
+                          <div className="space-y-2">
+                            <div className="flex items-start gap-2">
+                              <span className="font-mono text-xs text-slate-700 break-all">
+                                {truncateMiddle(b.claimHash, 12, 10)}
+                              </span>
+                              {b.claimHash && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(b.claimHash)}
+                                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                                >
+                                  {copiedValue === b.claimHash ? "Copied" : "Copy"}
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="text-sm text-slate-700">
+                              Code: {b.claimCode || "—"}
+                            </div>
+
+                            {b.qrPayload && (
+                              <div className="text-[11px] text-slate-400 break-all">
+                                QR: {truncateMiddle(b.qrPayload, 18, 12)}
+                              </div>
                             )}
                           </div>
-                          {b.registrationTxHash && (
-                            <div className="mt-2 font-mono text-[11px] text-slate-400 break-all">
-                              Tx: {truncateMiddle(b.registrationTxHash, 12, 8)}
-                            </div>
-                          )}
                         </td>
 
                         <td className="px-5 py-4 text-sm text-slate-700">
-                          {b.claimCode || "—"}
+                          <div className="space-y-1">
+                            <div className="text-xs text-slate-500">
+                              Beneficiary CID:
+                            </div>
+                            <div className="font-mono text-xs break-all">
+                              {b.beneficiaryCID ? truncateMiddle(b.beneficiaryCID, 12, 8) : "—"}
+                            </div>
+
+                            <div className="mt-2 text-xs text-slate-500">
+                              Manifest CID:
+                            </div>
+                            <div className="font-mono text-xs break-all">
+                              {b.finalManifestCID
+                                ? truncateMiddle(b.finalManifestCID, 12, 8)
+                                : b.manifestCID
+                                ? truncateMiddle(b.manifestCID, 12, 8)
+                                : "—"}
+                            </div>
+                          </div>
                         </td>
 
                         <td className="px-5 py-4 text-sm text-slate-700">
@@ -352,14 +393,14 @@ function PartnerBeneficiaries() {
             )}
           </div>
 
-          {campaign?.beneficiaryManifestCID && (
+          {(campaign?.finalBatchManifestCID || campaign?.latestBeneficiaryManifestCID) && (
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <h2 className="text-sm font-semibold text-slate-900">Latest Manifest</h2>
               <p className="mt-2 text-xs font-mono text-slate-600 break-all">
-                {campaign.beneficiaryManifestCID}
+                {campaign.finalBatchManifestCID || campaign.latestBeneficiaryManifestCID}
               </p>
               <a
-                href={`https://ipfs.io/ipfs/${campaign.beneficiaryManifestCID}`}
+                href={`https://ipfs.io/ipfs/${campaign.finalBatchManifestCID || campaign.latestBeneficiaryManifestCID}`}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-3 inline-flex text-sm font-medium text-blue-600 hover:underline"

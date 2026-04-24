@@ -18,6 +18,9 @@ module.exports = {
     hardhat: {
       chainId: 31337,
       loggingEnabled: true,
+      gas: 12_000_000,          // block gas limit
+      blockGasLimit: 12_000_000,
+      allowUnlimitedContractSize: true, // during dev only
     },
     amoy: {
       url: process.env.POLYGON_AMOY_RPC || "https://rpc-amoy.polygon.technology",

@@ -1,54 +1,65 @@
-import { useEffect, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore"
-import { ethers } from "ethers"
-import { db } from "../../lib/firebase"
-import { useAuth } from "../../contexts/AuthContext"
-import HOPECampaignABI from "../../abi/HOPECampaign.json"
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { ethers } from "ethers";
+import { db } from "../../lib/firebase";
+import { useAuth } from "../../contexts/AuthContext";
+import HOPECampaignABI from "../../abi/HOPECampaign.json";
+
+const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const formatUSDC = (baseUnits) =>
   Number(ethers.formatUnits((baseUnits ?? "0").toString(), 6)).toLocaleString(undefined, {
     maximumFractionDigits: 2,
-  })
+  });
 
 const formatDate = (value) => {
-  if (!value) return "—"
+  if (!value) return "—";
 
   if (value?.seconds) {
     return new Date(value.seconds * 1000).toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
       year: "numeric",
-    })
+    });
   }
 
-  const asString = value.toString()
+  const asString = value.toString();
   if (/^\d+$/.test(asString)) {
     return new Date(Number(asString) * 1000).toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
       year: "numeric",
-    })
+    });
   }
 
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "—"
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
 
   return d.toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  })
-}
+  });
+};
 
-const truncateAddress = (addr) => (addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "—")
+const truncateAddress = (addr) => (addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "—");
 
 const getRpcProvider = () => {
-  const rpcUrl = import.meta.env.VITE_RPC_URL
-  if (!rpcUrl) throw new Error("VITE_RPC_URL is not set")
-  return new ethers.JsonRpcProvider(rpcUrl)
-}
+  const rpcUrl = import.meta.env.VITE_RPC_URL;
+  if (!rpcUrl) throw new Error("VITE_RPC_URL is not set");
+  return new ethers.JsonRpcProvider(rpcUrl);
+};
+
+const readableError = (error) => {
+  if (error?.code === 4001) return "Transaction rejected by user.";
+  if (error?.info?.error?.message) return error.info.error.message;
+  if (error?.reason) return error.reason;
+  if (error?.shortMessage) return error.shortMessage;
+  if (error?.message) return error.message;
+  return "Operation failed.";
+};
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -56,17 +67,17 @@ const STATUS_CONFIG = {
   completed: { label: "Completed", bg: "bg-blue-50", text: "text-blue-700", dot: "bg-blue-500" },
   closed: { label: "Closed", bg: "bg-slate-100", text: "text-slate-600", dot: "bg-slate-400" },
   pending: { label: "Pending", bg: "bg-gray-100", text: "text-gray-600", dot: "bg-gray-400" },
-}
+};
 
 const StatusBadge = ({ status = "pending" }) => {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
   return (
     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${cfg.bg} ${cfg.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
       {cfg.label}
     </span>
-  )
-}
+  );
+};
 
 const StatCard = ({ icon, label, value, sub, accent = false }) => (
   <div className={`rounded-2xl p-4 flex flex-col gap-1 border ${accent ? "bg-teal-600 border-teal-600 text-white" : "bg-white border-gray-200"}`}>
@@ -77,14 +88,14 @@ const StatCard = ({ icon, label, value, sub, accent = false }) => (
     <p className={`text-xs font-medium ${accent ? "text-teal-100" : "text-gray-500"}`}>{label}</p>
     {sub && <p className={`text-xs ${accent ? "text-teal-200" : "text-gray-400"}`}>{sub}</p>}
   </div>
-)
+);
 
 const DetailRow = ({ label, value }) => (
   <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-4 py-3 border-b border-gray-100 last:border-0">
     <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide sm:w-44 shrink-0">{label}</span>
     <span className="text-sm text-gray-800">{value}</span>
   </div>
-)
+);
 
 const QuickActionButton = ({ icon, label, description, onClick, variant = "default" }) => (
   <button
@@ -115,12 +126,12 @@ const QuickActionButton = ({ icon, label, description, onClick, variant = "defau
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
     </svg>
   </button>
-)
+);
 
 const ProgressBar = ({ raisedAmount, goalAmount }) => {
-  const raised = Number(ethers.formatUnits((raisedAmount ?? "0").toString(), 6))
-  const goal = Number(ethers.formatUnits((goalAmount ?? "0").toString(), 6))
-  const pct = goal > 0 ? Math.min((raised / goal) * 100, 100) : 0
+  const raised = Number(ethers.formatUnits((raisedAmount ?? "0").toString(), 6));
+  const goal = Number(ethers.formatUnits((goalAmount ?? "0").toString(), 6));
+  const pct = goal > 0 ? Math.min((raised / goal) * 100, 100) : 0;
 
   return (
     <div className="space-y-2">
@@ -136,11 +147,11 @@ const ProgressBar = ({ raisedAmount, goalAmount }) => {
       </div>
       <p className="text-xs text-gray-400">Goal: {goal.toLocaleString()} USDC</p>
     </div>
-  )
-}
+  );
+};
 
 const ConfirmModal = ({ open, title, message, confirmLabel, confirmClass, onConfirm, onCancel, loading }) => {
-  if (!open) return null
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -178,117 +189,8 @@ const ConfirmModal = ({ open, title, message, confirmLabel, confirmClass, onConf
         </div>
       </div>
     </div>
-  )
-}
-
-// ─── CampaignManagement ───────────────────────────────────────────────────────
-const CampaignManagement = ({ campaign, onStatusChange }) => {
-  const [actionLoading, setActionLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [confirmClose, setConfirmClose] = useState(false)
-
-  if (campaign.status === "completed" || campaign.status === "closed") {
-    return (
-      <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5">
-        <h2 className="text-sm font-semibold text-gray-700 mb-1">Campaign Management</h2>
-        <p className="text-xs text-gray-400">
-          This campaign is <span className="font-medium">{campaign.status}</span> and can no longer be modified.
-        </p>
-      </div>
-    )
-  }
-
-  const handleClose = async () => {
-    setActionLoading(true)
-    setError(null)
-
-    try {
-      if (!window.ethereum) {
-        throw new Error("MetaMask not found")
-      }
-
-      const provider = new ethers.BrowserProvider(window.ethereum)
-      await provider.send("eth_requestAccounts", [])
-      const signer = await provider.getSigner()
-
-      const contract = new ethers.Contract(campaign.campaignAddress, HOPECampaignABI.abi, signer)
-      const tx = await contract.closeCampaign()
-      await tx.wait()
-
-      try {
-        await updateDoc(doc(db, "campaigns", campaign.id), { status: "closed" })
-        onStatusChange("closed")
-      } catch {
-        setError("Campaign was closed on-chain but Firestore update failed. Refresh the page.")
-      }
-    } catch (err) {
-      console.error(err)
-      setError(err?.reason || err?.shortMessage || err?.message || "Transaction failed.")
-    } finally {
-      setActionLoading(false)
-      setConfirmClose(false)
-    }
-  }
-
-  return (
-    <>
-      <ConfirmModal
-        open={confirmClose}
-        title="Close this campaign?"
-        message="Closing is permanent. Donations will be disabled and the campaign cannot be reopened from this UI."
-        confirmLabel="Yes, Close Campaign"
-        confirmClass="bg-red-600 hover:bg-red-700"
-        onConfirm={handleClose}
-        onCancel={() => setConfirmClose(false)}
-        loading={actionLoading}
-      />
-
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-700">Campaign Management</h2>
-          <p className="text-xs text-gray-400 mt-0.5">
-            This action calls the smart contract and then updates Firestore.
-          </p>
-        </div>
-
-        <button
-          onClick={() => setConfirmClose(true)}
-          disabled={actionLoading}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-sm font-medium transition-all disabled:opacity-60"
-        >
-          <span className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"
-              />
-            </svg>
-          </span>
-          <div className="text-left">
-            <p className="font-semibold text-red-900">Close Campaign</p>
-            <p className="text-xs text-red-500 font-normal">Permanently end this campaign</p>
-          </div>
-        </button>
-
-        {error && (
-          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
-            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <p className="text-xs text-red-700">{error}</p>
-          </div>
-        )}
-      </div>
-    </>
-  )
-}
+  );
+};
 
 const Icons = {
   money: (
@@ -366,71 +268,259 @@ const Icons = {
       />
     </svg>
   ),
-}
+};
+
+// ─── CampaignManagement ───────────────────────────────────────────────────────
+const CampaignManagement = ({ campaign, onCloseSuccess }) => {
+  const { user } = useAuth();
+  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+
+  if (campaign.status === "completed" || campaign.status === "closed") {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-2xl p-5">
+        <h2 className="text-sm font-semibold text-gray-700 mb-1">Campaign Management</h2>
+        <p className="text-xs text-gray-400">
+          This campaign is <span className="font-medium">{campaign.status}</span> and can no longer be modified.
+        </p>
+      </div>
+    );
+  }
+
+  const handleClose = async () => {
+    setActionLoading(true);
+    setError(null);
+
+    try {
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+
+      if (!backendUrl) {
+        throw new Error("VITE_BACKEND_URL is not set.");
+      }
+
+      const idToken = await user.getIdToken();
+
+      // Step 1: prepare close
+      const prepareResponse = await fetch(`${backendUrl}/api/campaigns/prepare-close`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          campaignAddress: campaign.campaignAddress,
+        }),
+      });
+
+      const prepared = await prepareResponse.json();
+
+      if (!prepareResponse.ok) {
+        throw new Error(prepared.message || prepared.error || "Prepare close failed.");
+      }
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+
+      const signerAddress = await signer.getAddress();
+      if (
+        campaign.partnerWallet &&
+        signerAddress.toLowerCase() !== campaign.partnerWallet.toLowerCase()
+      ) {
+        throw new Error("Connected wallet does not match the campaign partner wallet.");
+      }
+
+      const contract = new ethers.Contract(campaign.campaignAddress, HOPECampaignABI.abi, signer);
+
+      let registerTxHash = null;
+
+      // Step 2: register beneficiaries on-chain only if drafts exist
+      if (prepared.count > 0) {
+        const registerTx = await contract.registerBeneficiaries(
+          prepared.claimHashes,
+          prepared.finalManifestCID,
+          prepared.count
+        );
+        const registerReceipt = await registerTx.wait();
+        registerTxHash = registerReceipt.hash;
+      }
+
+      // Step 3: lock beneficiaries
+      const lockTx = await contract.lockBeneficiaries();
+      const lockReceipt = await lockTx.wait();
+      const lockTxHash = lockReceipt.hash;
+
+      // Step 4: close campaign
+      const closeTx = await contract.closeCampaign();
+      const closeReceipt = await closeTx.wait();
+      const closeTxHash = closeReceipt.hash;
+
+      // Step 5: commit close to backend / firestore
+      const commitResponse = await fetch(`${backendUrl}/api/campaigns/commit-close`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          campaignAddress: campaign.campaignAddress,
+          closeSessionId: prepared.closeSessionId,
+          registerTxHash,
+          lockTxHash,
+          closeTxHash,
+        }),
+      });
+
+      const committed = await commitResponse.json();
+
+      if (!commitResponse.ok) {
+        throw new Error(
+          `${committed.message || committed.error || "Commit close failed."} If blockchain transactions succeeded, treat this as reconciliation-required.`
+        );
+      }
+
+      onCloseSuccess({
+        status: "closed",
+        isActive: false,
+        beneficiariesLocked: true,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(readableError(err));
+    } finally {
+      setActionLoading(false);
+      setConfirmClose(false);
+    }
+  };
+
+  return (
+    <>
+      <ConfirmModal
+        open={confirmClose}
+        title="Close this campaign?"
+        message="This will finalize all remaining draft beneficiaries on-chain, lock beneficiary registration, and close the campaign. This action is permanent."
+        confirmLabel="Yes, Close Campaign"
+        confirmClass="bg-red-600 hover:bg-red-700"
+        onConfirm={handleClose}
+        onCancel={() => setConfirmClose(false)}
+        loading={actionLoading}
+      />
+
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-700">Campaign Management</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Closing now triggers final beneficiary registration, beneficiary lock, and campaign closure in sequence.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setConfirmClose(true)}
+          disabled={actionLoading}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-sm font-medium transition-all disabled:opacity-60"
+        >
+          <span className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+            <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"
+              />
+            </svg>
+          </span>
+          <div className="text-left">
+            <p className="font-semibold text-red-900">Close Campaign</p>
+            <p className="text-xs text-red-500 font-normal">
+              Finalize beneficiaries, lock, and close permanently
+            </p>
+          </div>
+        </button>
+
+        {error && (
+          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <p className="text-xs text-red-700">{error}</p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const PartnerCampaignDetail = () => {
-  const { campaignAddress } = useParams()
-  const navigate = useNavigate()
-  const { user } = useAuth()
+  const { campaignAddress } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
 
-  const [campaign, setCampaign] = useState(null)
+  const [campaign, setCampaign] = useState(null);
   const [stats, setStats] = useState({
     raisedAmount: "0",
     beneficiaryCount: 0,
     donorCount: 0,
     claimedCount: 0,
     goalAmount: "0",
-  })
-  const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
+  });
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
 
-  const handleStatusChange = (newStatus) => {
-    setCampaign((prev) => ({ ...prev, status: newStatus }))
-  }
+  const handleCloseSuccess = (patch) => {
+    setCampaign((prev) => (prev ? { ...prev, ...patch } : prev));
+  };
 
   useEffect(() => {
     const fetchCampaign = async () => {
       if (!campaignAddress || !user?.uid) {
-        setLoading(false)
-        return
+        setLoading(false);
+        return;
       }
 
       try {
-        const q = query(collection(db, "campaigns"), where("campaignAddress", "==", campaignAddress))
-        const snapshot = await getDocs(q)
+        const q = query(collection(db, "campaigns"), where("campaignAddress", "==", campaignAddress));
+        const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
-          setCampaign(null)
-          return
+          setCampaign(null);
+          return;
         }
 
         const data = {
           id: snapshot.docs[0].id,
           ...snapshot.docs[0].data(),
-        }
+        };
 
         if (data.partnerUid !== user.uid) {
-          navigate("/partner/campaigns", { replace: true })
-          return
+          navigate("/partner/campaigns", { replace: true });
+          return;
         }
 
-        const provider = getRpcProvider()
-        const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider)
+        const provider = getRpcProvider();
+        const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider);
 
-        const details = await contract.getCampaignDetails()
+        const details = await contract.getCampaignDetails();
 
-        const donationFilter = contract.filters.DonationReceived()
-        const donationEvents = await contract.queryFilter(donationFilter, 0, "latest")
+        const donationFilter = contract.filters.DonationReceived();
+        const donationEvents = await contract.queryFilter(donationFilter, 0, "latest");
 
         const uniqueDonors = new Set(
           donationEvents.map((event) => event.args.donor.toLowerCase())
-        ).size
+        ).size;
 
         const derivedStatus =
           details._isActive
             ? (data.status === "closed" ? "closed" : "active")
-            : (data.status || "completed")
+            : (data.status || "completed");
 
         setCampaign({
           ...data,
@@ -445,7 +535,8 @@ const PartnerCampaignDetail = () => {
           beneficiaryCount: Number(details._beneficiaryCount),
           claimedCount: Number(details._claimedCount),
           isActive: details._isActive,
-        })
+          beneficiariesLocked: details._beneficiariesLocked,
+        });
 
         setStats({
           raisedAmount: details._raisedAmount.toString(),
@@ -453,27 +544,27 @@ const PartnerCampaignDetail = () => {
           donorCount: uniqueDonors,
           claimedCount: Number(details._claimedCount),
           goalAmount: details._goalAmount.toString(),
-        })
+        });
       } catch (err) {
-        console.error("Failed to fetch partner campaign detail:", err)
-        setCampaign(null)
+        console.error("Failed to fetch partner campaign detail:", err);
+        setCampaign(null);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchCampaign()
-  }, [campaignAddress, user?.uid, navigate])
+    fetchCampaign();
+  }, [campaignAddress, user?.uid, navigate]);
 
   const copyAddress = async () => {
     try {
-      await navigator.clipboard.writeText(campaignAddress)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(campaignAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      console.error("Copy failed:", error)
+      console.error("Copy failed:", error);
     }
-  }
+  };
 
   if (loading) {
     return (
@@ -486,7 +577,7 @@ const PartnerCampaignDetail = () => {
           ))}
         </div>
       </div>
-    )
+    );
   }
 
   if (!campaign) {
@@ -497,14 +588,14 @@ const PartnerCampaignDetail = () => {
           Go back
         </button>
       </div>
-    )
+    );
   }
 
-  const goal = Number(ethers.formatUnits((stats.goalAmount ?? "0").toString(), 6))
+  const goal = Number(ethers.formatUnits((stats.goalAmount ?? "0").toString(), 6));
   const claimPct =
     stats.beneficiaryCount > 0
       ? ((stats.claimedCount / stats.beneficiaryCount) * 100).toFixed(0)
-      : 0
+      : 0;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -576,7 +667,7 @@ const PartnerCampaignDetail = () => {
           icon={Icons.users}
           label="Beneficiaries"
           value={stats.beneficiaryCount.toLocaleString()}
-          sub="registered"
+          sub="registered on-chain"
         />
         <StatCard
           icon={Icons.donors}
@@ -625,6 +716,10 @@ const PartnerCampaignDetail = () => {
                 label="Campaign Address"
                 value={<span className="font-mono text-xs text-gray-500">{campaignAddress}</span>}
               />
+              <DetailRow
+                label="Beneficiaries Locked"
+                value={campaign.beneficiariesLocked ? "Yes" : "No"}
+              />
               {campaign.documentCID && (
                 <DetailRow
                   label="IPFS Document"
@@ -651,7 +746,7 @@ const PartnerCampaignDetail = () => {
               <QuickActionButton
                 icon={Icons.register}
                 label="Register Beneficiaries"
-                description="Add beneficiaries and submit the registration batch"
+                description="Add beneficiaries as drafts for this campaign"
                 onClick={() => navigate(`/partner/campaigns/${campaignAddress}/beneficiaries/register`)}
                 variant="primary"
               />
@@ -659,20 +754,20 @@ const PartnerCampaignDetail = () => {
               <QuickActionButton
                 icon={Icons.view}
                 label="View Registered Beneficiaries"
-                description="See all beneficiaries already recorded for this campaign"
+                description="See all beneficiary draft and finalized records for this campaign"
                 onClick={() => navigate(`/partner/campaigns/${campaignAddress}/beneficiaries`)}
               />
 
               <QuickActionButton
                 icon={Icons.claim}
-                label="Manage Aid Claims"
+                label="Process Claims"
                 description="Review and process aid claims"
-                onClick={() => navigate(`/partner/claims`)}
+                onClick={() => navigate(`/partner/campaigns/${campaignAddress}/claims`)}
               />
             </div>
           </div>
 
-          <CampaignManagement campaign={campaign} onStatusChange={handleStatusChange} />
+          <CampaignManagement campaign={campaign} onCloseSuccess={handleCloseSuccess} />
 
           <div className="bg-white border border-gray-200 rounded-2xl p-5">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Claim Progress</h2>
@@ -697,7 +792,7 @@ const PartnerCampaignDetail = () => {
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default PartnerCampaignDetail
+export default PartnerCampaignDetail;

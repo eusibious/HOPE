@@ -97,6 +97,7 @@ const PartnerRegistration = () => {
     if (!backendUrl) {
       throw new Error('VITE_BACKEND_URL is not set')
     }
+    console.log("Calling validate endpoint:", `${import.meta.env.VITE_BACKEND_URL}/api/validate-email-domain`);
 
     const response = await fetch(`${backendUrl}/api/validate-email-domain`, {
       method: 'POST',
@@ -106,7 +107,10 @@ const PartnerRegistration = () => {
       body: JSON.stringify({ email }),
     })
 
-    const data = await response.json()
+    const contentType = response.headers.get('content-type') || ''
+    const data = contentType.includes('application/json')
+      ? await response.json()
+      : { message: 'Unexpected server response.' }
 
     if (!response.ok) {
       return {
@@ -121,9 +125,16 @@ const PartnerRegistration = () => {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
 
+    const nextValue =
+      type === 'checkbox'
+        ? checked
+        : name === 'phone'
+          ? value.replace(/\D/g, '')
+          : value
+
     setFormData((prev) => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value,
+      [name]: nextValue,
     }))
 
     setFieldErrors((prev) => ({
@@ -347,6 +358,7 @@ const PartnerRegistration = () => {
                 onChange={handleChange}
                 required
                 inputMode="numeric"
+                pattern="[0-9]*"
                 className={`flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                   fieldErrors.phone ? 'border-red-400' : 'border-gray-300'
                 }`}

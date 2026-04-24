@@ -28,6 +28,7 @@ import PartnerCampaignDetail from './pages/partner/PartnerCampaignDetail'
 import PartnerCreateCampaign from './pages/partner/PartnerCreateCampaign'
 import PartnerBeneficiaries from './pages/partner/PartnerBeneficiaries'
 import PartnerBeneficiaryRegister from './pages/partner/PartnerBeneficiaryRegister'
+import PartnerBeneficiaryClaims from './pages/partner/PartnerBeneficiaryClaims'
 import Logout from './pages/auth/Logout'
 import PartnerProfile from './pages/partner/PartnerProfile'
 
@@ -137,10 +138,7 @@ function App() {
                 element={
                   <PartnerRoute>
                     <PartnerLayout>
-                      <div className="p-6">
-                        <h1 className="text-2xl font-bold">Claims</h1>
-                        <p className="text-gray-600 mt-2">View and manage claims here.</p>
-                      </div>
+                      <PartnerBeneficiaryClaims />
                     </PartnerLayout>
                   </PartnerRoute>
                 }

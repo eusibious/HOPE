@@ -100,6 +100,9 @@ const getCampaignDocByAddress = async (campaignAddress) => {
   };
 };
 
+const getCampaignBeneficiaryCollection = (campaignId) =>
+  db.collection("campaigns").doc(campaignId).collection("beneficiaries");
+
 // ─── Auth Middleware ─────────────────────────────────────────────────────────
 const verifyAdmin = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -120,7 +123,7 @@ const verifyAdmin = async (req, res, next) => {
 
     req.adminUid = decoded.uid;
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ error: "Unauthorized. Invalid token." });
   }
 };
@@ -162,78 +165,143 @@ const verifyPartner = async (req, res, next) => {
 };
 
 // ─── Beneficiary Helpers ─────────────────────────────────────────────────────
-const normalizePhone = (phone = "") => {
-  return String(phone).replace(/\D/g, "");
+const normalizeGender = (value = "") => String(value).trim().toLowerCase();
+const normalizeIdType = (value = "") => String(value).trim().toLowerCase();
+const normalizeIdNumber = (value = "") =>
+  String(value).trim().toUpperCase().replace(/\s+/g, "");
+
+const parseAge = (value) => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 120) {
+    throw new ClientInputError("Age must be a whole number between 0 and 120.");
+  }
+  return n;
 };
 
-const normalizeGovId = (govId = "") => {
-  return String(govId).trim().toUpperCase().replace(/\s+/g, "");
+const getAgeBand = (age) => {
+  if (age < 18) return "0-17";
+  if (age < 26) return "18-25";
+  if (age < 41) return "26-40";
+  if (age < 61) return "41-60";
+  return "60+";
 };
 
 const generateClaimCode = () => {
   return crypto.randomBytes(4).toString("hex").toUpperCase();
 };
 
-const generateClaimHash = ({ campaignAddress, phone, governmentId }) => {
+const generateClaimHash = ({ campaignAddress, idType, idNumber }) => {
   const raw = [
     String(campaignAddress).toLowerCase(),
-    normalizePhone(phone),
-    normalizeGovId(governmentId),
+    normalizeIdType(idType),
+    normalizeIdNumber(idNumber),
     BENEFICIARY_SECRET,
   ].join("|");
 
   return ethers.keccak256(ethers.toUtf8Bytes(raw));
 };
 
-const sanitizeAidAmount = (value) => {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "";
-
-  if (!/^\d+(\.\d{1,2})?$/.test(raw)) {
-    throw new ClientInputError(
-      "Aid amount must be a valid positive number with up to 2 decimals."
-    );
-  }
-
-  return raw;
-};
-
-const validateBeneficiaryRow = (item, index) => {
+const validateDraftBeneficiaryInput = (item) => {
   const fullName = String(item?.fullName || "").trim();
-  const phone = normalizePhone(item?.phone || "");
-  const governmentId = normalizeGovId(item?.governmentId || "");
-  const aidAmount = sanitizeAidAmount(item?.aidAmount || "");
+  const age = parseAge(item?.age);
+  const gender = normalizeGender(item?.gender || "");
+  const idType = normalizeIdType(item?.idType || "");
+  const idNumber = normalizeIdNumber(item?.idNumber || "");
+  const selfie = String(item?.photoUrls?.selfie || "").trim();
+  const idFront = String(item?.photoUrls?.idFront || "").trim();
+  const idBack = String(item?.photoUrls?.idBack || "").trim();
 
   if (!fullName) {
-    throw new ClientInputError(`Beneficiary ${index + 1}: fullName is required.`);
+    throw new ClientInputError("Full name is required.");
   }
 
-  if (!phone || phone.length < 6) {
-    throw new ClientInputError(`Beneficiary ${index + 1}: valid phone is required.`);
+  if (!["male", "female", "other"].includes(gender)) {
+    throw new ClientInputError("Gender must be male, female, or other.");
   }
 
-  if (!governmentId) {
-    throw new ClientInputError(`Beneficiary ${index + 1}: governmentId is required.`);
+  if (!idType) {
+    throw new ClientInputError("ID type is required.");
+  }
+
+  if (!idNumber) {
+    throw new ClientInputError("ID number is required.");
+  }
+
+  if (!selfie) {
+  throw new ClientInputError("Beneficiary selfie URL is required.");
+  }
+
+  if (!idFront) {
+  throw new ClientInputError("ID front image URL is required.");
+  }
+
+  if (!idBack) {
+  throw new ClientInputError("ID back image URL is required.");
   }
 
   return {
     fullName,
-    phone,
-    governmentId,
-    normalizedPhone: phone,
-    normalizedGovernmentId: governmentId,
-    aidAmount,
+    age,
+    gender,
+    idType,
+    idNumber,
+    normalizedIdType: idType,
+    normalizedIdNumber: idNumber,
+    normalizedIdentityKey: `${idType}:${idNumber}`,
+    photoUrls: {
+      selfie,
+      idFront,
+      idBack,
+    },
   };
 };
 
-const getExistingCampaignBeneficiaries = async (campaignId) => {
-  const snapshot = await db
-    .collection("campaigns")
-    .doc(campaignId)
-    .collection("beneficiaries")
+const buildPublicBeneficiaryRecord = ({ campaignAddress, claimHash, age, gender, idType }) => ({
+  campaignAddress,
+  claimHash,
+  ageBand: getAgeBand(age),
+  gender,
+  idType,
+  photoProof:  {
+    selfie: true,
+    idFront: true,
+    idBack: true,
+  },
+  registeredAt: new Date().toISOString(),
+});
+
+const buildManifestVersionRecord = ({
+  campaignAddress,
+  version,
+  previousManifestCID,
+  claimHash,
+  beneficiaryCID,
+  totalCount,
+}) => ({
+  campaignAddress,
+  version,
+  previousManifestCID: previousManifestCID || null,
+  generatedAt: new Date().toISOString(),
+  newEntry: {
+    claimHash,
+    beneficiaryCID,
+  },
+  totalCount,
+});
+
+const findExistingBeneficiaryByIdentity = async (campaignId, normalizedIdentityKey) => {
+  const snapshot = await getCampaignBeneficiaryCollection(campaignId)
+    .where("normalizedIdentityKey", "==", normalizedIdentityKey)
+    .limit(1)
     .get();
 
-  return snapshot.docs.map((doc) => doc.data());
+  if (snapshot.empty) return null;
+
+  return {
+    id: snapshot.docs[0].id,
+    ref: snapshot.docs[0].ref,
+    data: snapshot.docs[0].data(),
+  };
 };
 
 const uploadJsonToIPFS = async (jsonData, fileName = "beneficiaries.json") => {
@@ -328,6 +396,17 @@ const verifyBeneficiaryRegistrationReceipt = async (
   return receipt;
 };
 
+const verifyCampaignClosedState = async (campaignAddress) => {
+  const contract = getCampaignReadContract(campaignAddress);
+  const details = await contract.getCampaignDetails();
+
+  if (details._isActive) {
+    throw new Error("Campaign is still active on-chain after close transaction.");
+  }
+
+  return details;
+};
+
 // ─── POST /api/approve-partner ───────────────────────────────────────────────
 app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
   const { partnerId } = req.body;
@@ -393,8 +472,6 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    console.log(`Partner document written to users collection. uid=${uid}`);
-
     const actionCodeSettings = {
       url: process.env.FRONTEND_URL
         ? `${process.env.FRONTEND_URL}/login`
@@ -406,8 +483,6 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
       partner.email,
       actionCodeSettings
     );
-
-    console.log(`Password reset link generated for ${partner.email}`);
 
     await transporter.sendMail({
       from: `"HOPE Platform" <${process.env.EMAIL_USER}>`,
@@ -462,8 +537,6 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
       `,
     });
 
-    console.log(`Welcome email sent to ${partner.email}`);
-
     await partnerRef.update({
       accountCreated: true,
       accountCreatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -471,8 +544,6 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
       accountCreationError: admin.firestore.FieldValue.delete(),
       accountCreationErrorAt: admin.firestore.FieldValue.delete(),
     });
-
-    console.log(`Partner approval complete. uid=${uid}, partnerId=${partnerId}`);
 
     return res.status(200).json({
       success: true,
@@ -493,6 +564,7 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
 });
 
 // ─── POST /api/upload-ipfs ───────────────────────────────────────────────────
+// Intentionally left open exactly as before.
 app.post("/api/upload-ipfs", async (req, res) => {
   try {
     const { fileBase64, fileName } = req.body;
@@ -529,17 +601,21 @@ app.post("/api/upload-ipfs", async (req, res) => {
   }
 });
 
-// ─── POST /api/beneficiaries/prepare-registration ────────────────────────────
-app.post("/api/beneficiaries/prepare-registration", verifyPartner, async (req, res) => {
+// ─── POST /api/beneficiaries/register-draft ──────────────────────────────────
+app.post("/api/beneficiaries/register-draft", verifyPartner, async (req, res) => {
   try {
-    const { campaignAddress, beneficiaries } = req.body;
+    const {
+      campaignAddress,
+      fullName,
+      age,
+      gender,
+      idType,
+      idNumber,
+      photoUrls,
+    } = req.body || {};
 
     if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
       return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
-    }
-
-    if (!Array.isArray(beneficiaries) || beneficiaries.length === 0) {
-      return buildError(res, 400, "invalid-beneficiary-row", "At least one beneficiary is required.");
     }
 
     const campaignDoc = await getCampaignDocByAddress(campaignAddress);
@@ -552,8 +628,13 @@ app.post("/api/beneficiaries/prepare-registration", verifyPartner, async (req, r
       return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
     }
 
-    if (campaignDoc.data.status === "closed") {
-      return buildError(res, 400, "campaign-not-active", "Cannot register beneficiaries for a closed campaign.");
+    if (campaignDoc.data.beneficiariesLocked === true) {
+      return buildError(
+        res,
+        400,
+        "beneficiaries-locked",
+        "Beneficiary registration is already closed for this campaign."
+      );
     }
 
     const contract = getCampaignReadContract(campaignAddress);
@@ -564,103 +645,544 @@ app.post("/api/beneficiaries/prepare-registration", verifyPartner, async (req, r
     }
 
     if (details._beneficiariesLocked) {
-      return buildError(res, 400, "beneficiaries-already-locked", "Beneficiaries are already locked for this campaign.");
+      return buildError(
+        res,
+        400,
+        "beneficiaries-locked",
+        "Beneficiaries are already locked on-chain."
+      );
     }
 
-    const existing = await getExistingCampaignBeneficiaries(campaignDoc.id);
-
-    const existingGovIds = new Set(
-      existing.map((b) => b.normalizedGovernmentId).filter(Boolean)
-    );
-
-    const existingPhones = new Set(
-      existing.map((b) => b.normalizedPhone).filter(Boolean)
-    );
-
-    const existingClaimHashes = new Set(
-      existing.map((b) => b.claimHash).filter(Boolean)
-    );
-
-    const seenGovIds = new Set();
-    const seenPhones = new Set();
-    const seenClaimHashes = new Set();
-
-    const preparedRows = beneficiaries.map((item, index) => {
-      const cleaned = validateBeneficiaryRow(item, index);
-
-      const claimHash = generateClaimHash({
-        campaignAddress,
-        phone: cleaned.normalizedPhone,
-        governmentId: cleaned.normalizedGovernmentId,
-      });
-
-      if (
-        seenGovIds.has(cleaned.normalizedGovernmentId) ||
-        existingGovIds.has(cleaned.normalizedGovernmentId)
-      ) {
-        throw new ClientInputError(
-          `Duplicate beneficiary governmentId detected at row ${index + 1}.`
-        );
-      }
-
-      if (
-        seenPhones.has(cleaned.normalizedPhone) ||
-        existingPhones.has(cleaned.normalizedPhone)
-      ) {
-        throw new ClientInputError(
-          `Duplicate beneficiary phone detected at row ${index + 1}.`
-        );
-      }
-
-      if (
-        seenClaimHashes.has(claimHash) ||
-        existingClaimHashes.has(claimHash)
-      ) {
-        throw new ClientInputError(
-          `Duplicate beneficiary claimHash detected at row ${index + 1}.`
-        );
-      }
-
-      seenGovIds.add(cleaned.normalizedGovernmentId);
-      seenPhones.add(cleaned.normalizedPhone);
-      seenClaimHashes.add(claimHash);
-
-      return {
-        ...cleaned,
-        claimHash,
-        claimCode: generateClaimCode(),
-      };
+    const cleaned = validateDraftBeneficiaryInput({
+      fullName,
+      age,
+      gender,
+      idType,
+      idNumber,
+      photoUrls,
     });
 
-    const generatedAt = new Date().toISOString();
-
-    const manifestPayload = {
-      campaignAddress,
-      generatedAt,
-      count: preparedRows.length,
-      beneficiaries: preparedRows.map((b) => ({
-        claimHash: b.claimHash,
-        aidAmount: b.aidAmount || "",
-        registeredAt: generatedAt,
-      })),
-    };
-
-    const manifestCID = await uploadJsonToIPFS(
-      manifestPayload,
-      `beneficiaries-${campaignAddress}-${Date.now()}.json`
+    const duplicate = await findExistingBeneficiaryByIdentity(
+      campaignDoc.id,
+      cleaned.normalizedIdentityKey
     );
 
-    const registrationBatchId = crypto.randomBytes(16).toString("hex");
+    if (duplicate) {
+      return buildError(
+        res,
+        409,
+        "duplicate-beneficiary",
+        "A beneficiary with the same ID type and ID number already exists for this campaign."
+      );
+    }
 
-    await db.collection("beneficiaryRegistrationSessions").doc(registrationBatchId).set({
-      registrationBatchId,
+    const claimHash = generateClaimHash({
+      campaignAddress,
+      idType: cleaned.normalizedIdType,
+      idNumber: cleaned.normalizedIdNumber,
+    });
+
+    const claimCode = generateClaimCode();
+    const qrPayload = `HOPE|${campaignAddress}|${claimHash}|${claimCode}`;
+
+    const publicBeneficiaryRecord = buildPublicBeneficiaryRecord({
+      campaignAddress,
+      claimHash,
+      age: cleaned.age,
+      gender: cleaned.gender,
+      idType: cleaned.idType,
+    });
+
+    const beneficiaryCID = await uploadJsonToIPFS(
+      publicBeneficiaryRecord,
+      `beneficiary-${claimHash}.json`
+    );
+
+    const nextVersion = Number(campaignDoc.data.beneficiaryManifestVersion || 0) + 1;
+    const nextCount = Number(campaignDoc.data.beneficiaryCount || 0) + 1;
+
+    const manifestRecord = buildManifestVersionRecord({
+      campaignAddress,
+      version: nextVersion,
+      previousManifestCID: campaignDoc.data.latestBeneficiaryManifestCID || null,
+      claimHash,
+      beneficiaryCID,
+      totalCount: nextCount,
+    });
+
+    const manifestCID = await uploadJsonToIPFS(
+      manifestRecord,
+      `beneficiary-manifest-${campaignAddress}-${nextVersion}.json`
+    );
+
+    const beneficiaryRef = getCampaignBeneficiaryCollection(campaignDoc.id).doc(claimHash);
+
+    const batch = db.batch();
+
+    batch.set(beneficiaryRef, {
       campaignAddress,
       campaignId: campaignDoc.id,
       partnerUid: req.partnerUid,
+
+      fullName: cleaned.fullName,
+      age: cleaned.age,
+      gender: cleaned.gender,
+      idType: cleaned.idType,
+      idNumber: cleaned.idNumber,
+      normalizedIdType: cleaned.normalizedIdType,
+      normalizedIdNumber: cleaned.normalizedIdNumber,
+      normalizedIdentityKey: cleaned.normalizedIdentityKey,
+      photoUrls: cleaned.photoUrls,
+
+      claimHash,
+      claimCode,
+      qrPayload,
+
+      beneficiaryCID,
       manifestCID,
-      claimHashes: preparedRows.map((b) => b.claimHash),
-      beneficiaries: preparedRows,
-      count: preparedRows.length,
+
+      status: "draft",
+      onChainRegistered: false,
+
+      batchId: null,
+      finalManifestCID: null,
+      registrationTxHash: null,
+
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    batch.update(campaignDoc.ref, {
+      beneficiaryCount: nextCount,
+      latestBeneficiaryManifestCID: manifestCID,
+      beneficiaryManifestVersion: nextVersion,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
+
+    return res.status(200).json({
+      success: true,
+      beneficiaryId: claimHash,
+      claimHash,
+      claimCode,
+      qrPayload,
+      beneficiaryCID,
+      manifestCID,
+    });
+  } catch (error) {
+    console.error("Draft beneficiary registration failed:", error);
+
+    if (error instanceof ClientInputError) {
+      return buildError(res, 400, error.code || "invalid-beneficiary-row", error.message);
+    }
+
+    return buildError(
+      res,
+      500,
+      "register-draft-failed",
+      error?.message || "Beneficiary draft registration failed."
+    );
+  }
+});
+
+// ─── GET /api/beneficiaries/:campaignAddress ─────────────────────────────────
+app.get("/api/beneficiaries/:campaignAddress", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+
+    const snapshot = await getCampaignBeneficiaryCollection(campaignDoc.id).get();
+
+    const beneficiaries = snapshot.docs
+      .map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+    return res.status(200).json({
+      success: true,
+      campaignId: campaignDoc.id,
+      beneficiaries,
+    });
+  } catch (error) {
+    console.error("Failed to fetch beneficiaries:", error);
+    return buildError(
+      res,
+      500,
+      "fetch-beneficiaries-failed",
+      error?.message || "Failed to fetch beneficiaries."
+    );
+  }
+});
+
+// ─── POST /api/claims/verify-qr ──────────────────────────────────────────────
+// Partner scans QR, frontend sends claimHash, backend verifies and returns beneficiary details
+app.post("/api/claims/verify-qr", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress, claimHash } = req.body || {};
+ 
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+ 
+    if (!claimHash || !claimHash.startsWith("0x")) {
+      return buildError(res, 400, "invalid-claim-hash", "Valid claimHash is required.");
+    }
+ 
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+ 
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+ 
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+ 
+    // Verify beneficiary exists in Firestore
+    const beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+      .where("claimHash", "==", claimHash)
+      .limit(1)
+      .get();
+ 
+    if (beneficiarySnapshot.empty) {
+      return buildError(res, 404, "beneficiary-not-found", "Beneficiary not found.");
+    }
+ 
+    const beneficiary = beneficiarySnapshot.docs[0].data();
+ 
+    // Verify campaign is locked on-chain
+    const contract = getCampaignReadContract(campaignAddress);
+    const details = await contract.getCampaignDetails();
+ 
+    if (!details._beneficiariesLocked) {
+      return buildError(
+        res,
+        400,
+        "beneficiaries-not-locked",
+        "Beneficiaries are not locked on-chain yet."
+      );
+    }
+ 
+    // Verify claim is valid on-chain
+    const HOPE_CAMPAIGN_CLAIM_ABI = [
+      "function verifyClaimHash(bytes32 _claimHash) view returns (bool isValid, bool hasBeenClaimed)",
+    ];
+ 
+    const claimContract = new ethers.Contract(
+      campaignAddress,
+      HOPE_CAMPAIGN_CLAIM_ABI,
+      new ethers.JsonRpcProvider(HARDHAT_RPC_URL)
+    );
+ 
+    const { isValid, hasBeenClaimed } = await claimContract.verifyClaimHash(claimHash);
+ 
+    if (!isValid) {
+      return buildError(res, 400, "invalid-claim-hash", "Claim hash is not registered.");
+    }
+ 
+    if (hasBeenClaimed) {
+      return buildError(res, 400, "already-claimed", "This beneficiary has already claimed.");
+    }
+ 
+    // Return beneficiary details for partner verification
+    return res.status(200).json({
+      success: true,
+      beneficiary: {
+        claimHash,
+        claimCode: beneficiary.claimCode,
+        fullName: beneficiary.fullName,
+        age: beneficiary.age,
+        gender: beneficiary.gender,
+        idType: beneficiary.idType,
+        idNumber: beneficiary.idNumber,
+        photoUrls: beneficiary.photoUrls,
+      },
+      campaign: {
+        title: campaignDoc.data.title,
+        partner: details._partner,
+        raisedAmount: Number(details._raisedAmount),
+        beneficiaryCount: Number(details._beneficiaryCount),
+        claimedCount: Number(details._claimedCount),
+      },
+    });
+  } catch (error) {
+    console.error("Verify QR failed:", error);
+    return buildError(res, 500, "verify-qr-failed", error?.message || "QR verification failed.");
+  }
+});
+
+// ─── POST /api/claims/process ────────────────────────────────────────────────
+// Partner approves and submits claim to blockchain
+app.post("/api/claims/process", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress, claimHash, txHash } = req.body || {};
+ 
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+ 
+    if (!claimHash || !claimHash.startsWith("0x")) {
+      return buildError(res, 400, "invalid-claim-hash", "Valid claimHash is required.");
+    }
+ 
+    if (!txHash || !txHash.startsWith("0x")) {
+      return buildError(res, 400, "invalid-tx-hash", "Valid blockchain transaction hash is required.");
+    }
+ 
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+ 
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+ 
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+ 
+    // Verify transaction succeeded on-chain
+    const receipt = await verifyTransactionReceipt(txHash, campaignAddress);
+ 
+    // Verify claim in Firestore
+    const beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+      .where("claimHash", "==", claimHash)
+      .limit(1)
+      .get();
+ 
+    if (beneficiarySnapshot.empty) {
+      return buildError(res, 404, "beneficiary-not-found", "Beneficiary not found.");
+    }
+ 
+    const beneficiary = beneficiarySnapshot.docs[0];
+    const beneficiaryData = beneficiary.data();
+ 
+    // Get campaign details for receipt
+    const contract = getCampaignReadContract(campaignAddress);
+    const details = await contract.getCampaignDetails();
+ 
+    const shareAmount = Number(details._raisedAmount) / Number(details._beneficiaryCount);
+ 
+    // Update Firestore: mark claim as processed
+    const batch = db.batch();
+ 
+    batch.set(
+      beneficiary.ref,
+      {
+        status: "claimed",
+        claimProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+        claimTxHash: txHash,
+        claimAmount: shareAmount,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+ 
+    await batch.commit();
+ 
+    // Generate receipt data
+    const receipt_data = {
+      campaignAddress,
+      campaignTitle: campaignDoc.data.title,
+      partnerName: req.partnerData?.organizationName || req.partnerData?.name || "Partner",
+      partnerWallet: details._partner,
+      beneficiaryName: beneficiaryData.fullName,
+      beneficiaryIdType: beneficiaryData.idType,
+      amount: shareAmount,
+      amountFormatted: (shareAmount / 1e6).toFixed(2), // USDC has 6 decimals
+      releaseDate: new Date().toISOString().split("T")[0],
+      claimHash,
+      claimCode: beneficiaryData.claimCode,
+      txHash,
+    };
+ 
+    return res.status(200).json({
+      success: true,
+      receipt: receipt_data,
+    });
+  } catch (error) {
+    console.error("Process claim failed:", error);
+    return buildError(res, 500, "claim-process-failed", error?.message || "Claim processing failed.");
+  }
+});
+
+// ─── GET /api/claims/campaign/:campaignAddress ───────────────────────────────
+// Get campaign stats for claims dashboard
+app.get("/api/claims/campaign/:campaignAddress", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+ 
+    if (!ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+ 
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+ 
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+ 
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+ 
+    // Get on-chain details
+    const contract = getCampaignReadContract(campaignAddress);
+    const details = await contract.getCampaignDetails();
+ 
+    // Get all beneficiaries
+    const beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+      .where("status", "==", "registered")
+      .get();
+ 
+    const allBeneficiaries = beneficiarySnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+ 
+    const claimedBeneficiaries = allBeneficiaries.filter((b) => b.status === "claimed");
+    const pendingBeneficiaries = allBeneficiaries.filter((b) => b.status === "registered");
+ 
+    const raisedAmount = Number(details._raisedAmount);
+    const beneficiaryCount = Number(details._beneficiaryCount);
+    const sharePerBeneficiary = beneficiaryCount > 0 ? raisedAmount / beneficiaryCount : 0;
+ 
+    return res.status(200).json({
+      success: true,
+      campaign: {
+        address: campaignAddress,
+        title: campaignDoc.data.title,
+        location: campaignDoc.data.location,
+        isActive: details._isActive,
+        beneficiariesLocked: details._beneficiariesLocked,
+        raisedAmount,
+        raisedAmountFormatted: (raisedAmount / 1e6).toFixed(2),
+        goalAmount: Number(details._goalAmount),
+        beneficiaryCount,
+        claimedCount: claimedBeneficiaries.length,
+        pendingCount: pendingBeneficiaries.length,
+        sharePerBeneficiary,
+        sharePerBeneficiaryFormatted: (sharePerBeneficiary / 1e6).toFixed(2),
+      },
+    });
+  } catch (error) {
+    console.error("Get campaign stats failed:", error);
+    return buildError(
+      res,
+      500,
+      "campaign-stats-failed",
+      error?.message || "Failed to fetch campaign stats."
+    );
+  }
+});
+
+// ─── Existing batch routes kept for compatibility ────────────────────────────
+app.post("/api/beneficiaries/prepare-final-batch", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress } = req.body || {};
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+
+    if (campaignDoc.data.beneficiariesLocked === true) {
+      return buildError(
+        res,
+        400,
+        "beneficiaries-locked",
+        "Beneficiaries are already finalized for this campaign."
+      );
+    }
+
+    const contract = getCampaignReadContract(campaignAddress);
+    const details = await contract.getCampaignDetails();
+
+    if (!details._isActive) {
+      return buildError(res, 400, "campaign-not-active", "Campaign is not active on-chain.");
+    }
+
+    if (details._beneficiariesLocked) {
+      return buildError(
+        res,
+        400,
+        "beneficiaries-locked",
+        "Beneficiaries are already locked on-chain."
+      );
+    }
+
+    const snapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+      .where("onChainRegistered", "==", false)
+      .get();
+
+    const draftBeneficiaries = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    if (draftBeneficiaries.length === 0) {
+      return buildError(
+        res,
+        400,
+        "no-draft-beneficiaries",
+        "No draft beneficiaries available to finalize."
+      );
+    }
+
+    const batchId = crypto.randomBytes(16).toString("hex");
+    const claimHashes = draftBeneficiaries.map((b) => b.claimHash);
+
+    const finalManifest = {
+      campaignAddress,
+      batchId,
+      generatedAt: new Date().toISOString(),
+      count: draftBeneficiaries.length,
+      beneficiaries: draftBeneficiaries.map((b) => ({
+        claimHash: b.claimHash,
+        beneficiaryCID: b.beneficiaryCID,
+        ageBand: getAgeBand(b.age),
+        gender: b.gender,
+        idType: b.idType,
+      })),
+    };
+
+    const finalManifestCID = await uploadJsonToIPFS(
+      finalManifest,
+      `beneficiary-final-batch-${campaignAddress}-${batchId}.json`
+    );
+
+    await db.collection("beneficiaryFinalizationSessions").doc(batchId).set({
+      batchId,
+      campaignAddress,
+      campaignId: campaignDoc.id,
+      partnerUid: req.partnerUid,
+      claimHashes,
+      beneficiaryIds: draftBeneficiaries.map((b) => b.id),
+      count: draftBeneficiaries.length,
+      finalManifestCID,
       status: "prepared",
       txHash: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -670,47 +1192,36 @@ app.post("/api/beneficiaries/prepare-registration", verifyPartner, async (req, r
 
     return res.status(200).json({
       success: true,
-      registrationBatchId,
-      manifestCID,
-      claimHashes: preparedRows.map((b) => b.claimHash),
-      count: preparedRows.length,
+      batchId,
+      claimHashes,
+      finalManifestCID,
+      count: draftBeneficiaries.length,
     });
   } catch (error) {
-    console.error("Prepare registration failed:", error);
-
-    if (error instanceof ClientInputError) {
-      return buildError(
-        res,
-        400,
-        error.code || "invalid-beneficiary-row",
-        error.message
-      );
-    }
-
+    console.error("Prepare final batch failed:", error);
     return buildError(
       res,
       500,
-      "prepare-failed",
-      error?.message || "Prepare registration failed."
+      "prepare-final-batch-failed",
+      error?.message || "Failed to prepare final beneficiary batch."
     );
   }
 });
 
-// ─── POST /api/beneficiaries/commit-registration ─────────────────────────────
-app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, res) => {
+app.post("/api/beneficiaries/commit-final-batch", verifyPartner, async (req, res) => {
   try {
-    const { campaignAddress, registrationBatchId, txHash } = req.body;
+    const { campaignAddress, batchId, txHash } = req.body || {};
 
     if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
       return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
     }
 
-    if (!registrationBatchId || !txHash) {
+    if (!batchId || !txHash) {
       return buildError(
         res,
         400,
-        "registration-commit-failed",
-        "registrationBatchId and txHash are required."
+        "final-batch-commit-failed",
+        "batchId and txHash are required."
       );
     }
 
@@ -724,11 +1235,11 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
       return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
     }
 
-    const sessionRef = db.collection("beneficiaryRegistrationSessions").doc(registrationBatchId);
+    const sessionRef = db.collection("beneficiaryFinalizationSessions").doc(batchId);
     const sessionSnap = await sessionRef.get();
 
     if (!sessionSnap.exists) {
-      return buildError(res, 404, "registration-commit-failed", "Registration session not found.");
+      return buildError(res, 404, "final-batch-commit-failed", "Finalization session not found.");
     }
 
     const session = sessionSnap.data();
@@ -741,7 +1252,7 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
         res,
         403,
         "forbidden",
-        "Registration session does not belong to this campaign/user."
+        "Finalization session does not belong to this campaign/user."
       );
     }
 
@@ -749,25 +1260,16 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
       return buildError(
         res,
         409,
-        "registration-commit-failed",
+        "final-batch-commit-failed",
         "This session is already associated with a different transaction."
       );
     }
 
     if (session.status === "committed") {
-      if (session.txHash !== txHash) {
-        return buildError(
-          res,
-          409,
-          "registration-commit-failed",
-          "Session already committed with a different transaction."
-        );
-      }
-
       return res.status(200).json({
         success: true,
-        manifestCID: session.manifestCID,
         txHash: session.txHash,
+        finalManifestCID: session.finalManifestCID,
         count: session.count,
       });
     }
@@ -776,46 +1278,29 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
       txHash,
       campaignAddress,
       session.count,
-      session.manifestCID
+      session.finalManifestCID
     );
 
     const batch = db.batch();
 
-    for (const beneficiary of session.beneficiaries) {
-      const ref = db
-        .collection("campaigns")
-        .doc(campaignDoc.id)
-        .collection("beneficiaries")
-        .doc(beneficiary.claimHash);
-
+    for (const beneficiaryId of session.beneficiaryIds) {
+      const ref = getCampaignBeneficiaryCollection(campaignDoc.id).doc(beneficiaryId);
       batch.set(
         ref,
         {
-          campaignAddress,
-          campaignId: campaignDoc.id,
-          partnerUid: req.partnerUid,
-          fullName: beneficiary.fullName,
-          phone: beneficiary.phone,
-          governmentId: beneficiary.governmentId,
-          normalizedPhone: beneficiary.normalizedPhone,
-          normalizedGovernmentId: beneficiary.normalizedGovernmentId,
-          aidAmount: beneficiary.aidAmount || "",
-          claimHash: beneficiary.claimHash,
-          claimCode: beneficiary.claimCode || null,
-          manifestCID: session.manifestCID,
-          registrationTxHash: txHash,
-          registrationBatchId,
           status: "registered",
-          claimed: false,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: null,
+          onChainRegistered: true,
+          batchId,
+          finalManifestCID: session.finalManifestCID,
+          registrationTxHash: txHash,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
     }
 
     batch.update(campaignDoc.ref, {
-      beneficiaryManifestCID: session.manifestCID,
+      finalBatchManifestCID: session.finalManifestCID,
       beneficiaryRegistrationVersion: admin.firestore.FieldValue.increment(1),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -831,17 +1316,16 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
 
     return res.status(200).json({
       success: true,
-      count: session.count,
-      manifestCID: session.manifestCID,
       txHash,
+      finalManifestCID: session.finalManifestCID,
+      count: session.count,
     });
   } catch (error) {
-    console.error("Commit registration failed:", error);
+    console.error("Commit final batch failed:", error);
 
-    const { registrationBatchId, txHash } = req.body || {};
-
-    if (registrationBatchId) {
-      await db.collection("beneficiaryRegistrationSessions").doc(registrationBatchId).set(
+    const { batchId, txHash } = req.body || {};
+    if (batchId) {
+      await db.collection("beneficiaryFinalizationSessions").doc(batchId).set(
         {
           status: "commit_failed",
           error: error?.message || "Commit failed",
@@ -855,12 +1339,11 @@ app.post("/api/beneficiaries/commit-registration", verifyPartner, async (req, re
       res,
       500,
       "reconciliation-required",
-      error?.message || "Blockchain may have succeeded but Firestore commit failed."
+      error?.message || "Blockchain may have succeeded but final batch Firestore commit failed."
     );
   }
 });
 
-// ─── POST /api/beneficiaries/commit-lock ─────────────────────────────────────
 app.post("/api/beneficiaries/commit-lock", verifyPartner, async (req, res) => {
   try {
     const { campaignAddress, txHash } = req.body;
@@ -910,6 +1393,281 @@ app.post("/api/beneficiaries/commit-lock", verifyPartner, async (req, res) => {
       500,
       "lock-commit-failed",
       error?.message || "Lock commit failed."
+    );
+  }
+});
+
+// ─── NEW: Close flow prepare endpoint ────────────────────────────────────────
+app.post("/api/campaigns/prepare-close", verifyPartner, async (req, res) => {
+  try {
+    const { campaignAddress } = req.body || {};
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+
+    if (campaignDoc.data.status === "closed") {
+      return buildError(res, 400, "campaign-already-closed", "Campaign is already closed.");
+    }
+
+    const contract = getCampaignReadContract(campaignAddress);
+    const details = await contract.getCampaignDetails();
+
+    if (!details._isActive) {
+      return buildError(res, 400, "campaign-not-active", "Campaign is already inactive on-chain.");
+    }
+
+    const snapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+      .where("onChainRegistered", "==", false)
+      .get();
+
+    const draftBeneficiaries = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+
+    const closeSessionId = crypto.randomBytes(16).toString("hex");
+
+    let claimHashes = [];
+    let finalManifestCID = null;
+    let count = 0;
+
+    if (draftBeneficiaries.length > 0) {
+      claimHashes = draftBeneficiaries.map((b) => b.claimHash);
+      count = draftBeneficiaries.length;
+
+      const finalManifest = {
+        campaignAddress,
+        closeSessionId,
+        generatedAt: new Date().toISOString(),
+        count,
+        beneficiaries: draftBeneficiaries.map((b) => ({
+          claimHash: b.claimHash,
+          beneficiaryCID: b.beneficiaryCID,
+          ageBand: getAgeBand(b.age),
+          gender: b.gender,
+          idType: b.idType,
+        })),
+      };
+
+      finalManifestCID = await uploadJsonToIPFS(
+        finalManifest,
+        `beneficiary-close-${campaignAddress}-${closeSessionId}.json`
+      );
+    }
+
+    await db.collection("campaignCloseSessions").doc(closeSessionId).set({
+      closeSessionId,
+      campaignAddress,
+      campaignId: campaignDoc.id,
+      partnerUid: req.partnerUid,
+      beneficiaryIds: draftBeneficiaries.map((b) => b.id),
+      claimHashes,
+      finalManifestCID,
+      count,
+      status: "prepared",
+      registerTxHash: null,
+      lockTxHash: null,
+      closeTxHash: null,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      committedAt: null,
+      error: null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      closeSessionId,
+      count,
+      claimHashes,
+      finalManifestCID,
+    });
+  } catch (error) {
+    console.error("Prepare close failed:", error);
+    return buildError(
+      res,
+      500,
+      "prepare-close-failed",
+      error?.message || "Failed to prepare campaign close."
+    );
+  }
+});
+
+// ─── NEW: Close flow commit endpoint ─────────────────────────────────────────
+app.post("/api/campaigns/commit-close", verifyPartner, async (req, res) => {
+  try {
+    const {
+      campaignAddress,
+      closeSessionId,
+      registerTxHash,
+      lockTxHash,
+      closeTxHash,
+    } = req.body || {};
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "campaign-not-found", "Valid campaignAddress is required.");
+    }
+
+    if (!closeSessionId || !lockTxHash || !closeTxHash) {
+      return buildError(
+        res,
+        400,
+        "commit-close-failed",
+        "closeSessionId, lockTxHash, and closeTxHash are required."
+      );
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.partnerUid !== req.partnerUid) {
+      return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
+    }
+
+    const sessionRef = db.collection("campaignCloseSessions").doc(closeSessionId);
+    const sessionSnap = await sessionRef.get();
+
+    if (!sessionSnap.exists) {
+      return buildError(res, 404, "commit-close-failed", "Close session not found.");
+    }
+
+    const session = sessionSnap.data();
+
+    if (
+      session.partnerUid !== req.partnerUid ||
+      session.campaignAddress.toLowerCase() !== campaignAddress.toLowerCase()
+    ) {
+      return buildError(
+        res,
+        403,
+        "forbidden",
+        "Close session does not belong to this campaign/user."
+      );
+    }
+
+    if (session.status === "committed") {
+      return res.status(200).json({
+        success: true,
+        closeTxHash: session.closeTxHash,
+        lockTxHash: session.lockTxHash,
+        registerTxHash: session.registerTxHash,
+        finalManifestCID: session.finalManifestCID,
+        count: session.count,
+      });
+    }
+
+    if (session.count > 0) {
+      if (!registerTxHash) {
+        return buildError(
+          res,
+          400,
+          "commit-close-failed",
+          "registerTxHash is required when draft beneficiaries exist."
+        );
+      }
+
+      await verifyBeneficiaryRegistrationReceipt(
+        registerTxHash,
+        campaignAddress,
+        session.count,
+        session.finalManifestCID
+      );
+    }
+
+    await verifyTransactionReceipt(lockTxHash, campaignAddress);
+    const lockDetails = await getCampaignReadContract(campaignAddress).getCampaignDetails();
+
+    if (!lockDetails._beneficiariesLocked) {
+      throw new Error("Beneficiaries are not locked on-chain after lock transaction.");
+    }
+
+    await verifyTransactionReceipt(closeTxHash, campaignAddress);
+    await verifyCampaignClosedState(campaignAddress);
+
+    const batch = db.batch();
+
+    if (session.count > 0) {
+      for (const beneficiaryId of session.beneficiaryIds) {
+        const ref = getCampaignBeneficiaryCollection(campaignDoc.id).doc(beneficiaryId);
+        batch.set(
+          ref,
+          {
+            status: "registered",
+            onChainRegistered: true,
+            batchId: closeSessionId,
+            finalManifestCID: session.finalManifestCID,
+            registrationTxHash: registerTxHash,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
+    batch.update(campaignDoc.ref, {
+      status: "closed",
+      beneficiariesLocked: true,
+      beneficiariesLockedAt: admin.firestore.FieldValue.serverTimestamp(),
+      beneficiaryLockTxHash: lockTxHash,
+      closeCampaignTxHash: closeTxHash,
+      finalBatchManifestCID: session.finalManifestCID || null,
+      beneficiaryRegistrationVersion: admin.firestore.FieldValue.increment(session.count > 0 ? 1 : 0),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    batch.update(sessionRef, {
+      status: "committed",
+      registerTxHash: registerTxHash || null,
+      lockTxHash,
+      closeTxHash,
+      committedAt: admin.firestore.FieldValue.serverTimestamp(),
+      error: null,
+    });
+
+    await batch.commit();
+
+    return res.status(200).json({
+      success: true,
+      registerTxHash: registerTxHash || null,
+      lockTxHash,
+      closeTxHash,
+      finalManifestCID: session.finalManifestCID,
+      count: session.count,
+    });
+  } catch (error) {
+    console.error("Commit close failed:", error);
+
+    const { closeSessionId, registerTxHash, lockTxHash, closeTxHash } = req.body || {};
+    if (closeSessionId) {
+      await db.collection("campaignCloseSessions").doc(closeSessionId).set(
+        {
+          status: "commit_failed",
+          error: error?.message || "Commit close failed",
+          registerTxHash: registerTxHash || null,
+          lockTxHash: lockTxHash || null,
+          closeTxHash: closeTxHash || null,
+        },
+        { merge: true }
+      );
+    }
+
+    return buildError(
+      res,
+      500,
+      "reconciliation-required",
+      error?.message || "One or more close transactions may have succeeded but Firestore commit failed."
     );
   }
 });
