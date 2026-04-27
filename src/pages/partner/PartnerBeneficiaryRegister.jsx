@@ -904,12 +904,7 @@ function PartnerBeneficiaryRegister() {
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl p-5">
-            <h2 className="text-sm font-semibold text-slate-900">Next Steps</h2>
-            <p className="mt-2 text-sm text-slate-500">
-              After all beneficiaries are registered, the partner requests admin approval to lock and submit to blockchain.
-            </p>
-          </div>
+         
         </div>
       </div>
     </div>

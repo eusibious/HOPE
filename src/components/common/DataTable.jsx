@@ -57,9 +57,9 @@ function DataTable({
                 {columns.map((column) => (
                   <th 
                     key={column.key}
-                    className={`data-table-header-cell ${
+                    className={`px-4 py-3 font-semibold text-slate-900 ${
                       column.align === 'center' ? 'text-center' : 
-                      column.align === 'right' ? 'text-right' : ''
+                      column.align === 'right' ? 'text-right' : 'text-left'
                     }`}
                   >
                     {column.label}
@@ -69,13 +69,13 @@ function DataTable({
             </thead>
             <tbody>
               {data.map((row, rowIndex) => (
-                <tr key={rowIndex} className="data-table-row">
+                <tr key={rowIndex} className="border-b border-slate-100">
                   {columns.map((column) => (
                     <td 
                       key={column.key}
-                      className={`data-table-cell ${
+                      className={`px-4 py-4 text-slate-700 ${
                         column.align === 'center' ? 'text-center' : 
-                        column.align === 'right' ? 'text-right' : ''
+                        column.align === 'right' ? 'text-right' : 'text-left'
                       }`}
                     >
                       {column.render ? column.render(row[column.key], row, rowIndex) : row[column.key]}

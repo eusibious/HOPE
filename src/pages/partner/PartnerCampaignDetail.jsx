@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, collectionGroup } from "firebase/firestore";
 import { ethers } from "ethers";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
@@ -9,10 +9,15 @@ import HOPECampaignABI from "../../abi/HOPECampaign.json";
 const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const formatUSDC = (baseUnits) =>
-  Number(ethers.formatUnits((baseUnits ?? "0").toString(), 6)).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-  });
+const formatUSDC = (value) => {
+  try {
+    return Number(ethers.formatUnits(value?.toString() || "0", 6)).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    return "0";
+  }
+};
 
 const formatDate = (value) => {
   if (!value) return "—";
@@ -192,6 +197,107 @@ const ConfirmModal = ({ open, title, message, confirmLabel, confirmClass, onConf
   );
 };
 
+const PasswordConfirmModal = ({
+  open,
+  onConfirm,
+  onCancel,
+  loading,
+  title,
+  message,
+  buttonText
+}) => {
+  const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setPassword("");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const handleCancel = () => {
+    setPassword("");
+    onCancel();
+  };
+
+  const handleConfirm = () => {
+    const value = password.trim();
+    if (!value) return;
+
+    setPassword("");
+    onConfirm(value);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={handleCancel}
+      />
+
+      {/* Modal */}
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+        <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center">
+          <svg
+            className="w-5 h-5 text-amber-600"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+            />
+          </svg>
+        </div>
+
+        <div>
+          <p className="font-semibold text-gray-900">
+            {title || "Confirm with Password"}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            {message || "Enter your account password to proceed."}
+          </p>
+        </div>
+
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
+          placeholder="Your password"
+          autoComplete="new-password"
+          className="w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-600 focus:border-transparent text-sm disabled:bg-gray-50"
+        />
+
+        <div className="flex gap-3 pt-1">
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={loading || !password.trim()}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-60"
+          >
+            {loading ? "Processing…" : buttonText || "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Icons = {
   money: (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -271,11 +377,12 @@ const Icons = {
 };
 
 // ─── CampaignManagement ───────────────────────────────────────────────────────
-const CampaignManagement = ({ campaign, onCloseSuccess }) => {
+const CampaignManagement = ({ campaign, stats, onCloseSuccess }) => {
   const { user } = useAuth();
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [confirmClose, setConfirmClose] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null); // "lock" or "close"
 
   if (campaign.status === "completed" || campaign.status === "closed") {
     return (
@@ -288,11 +395,20 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
     );
   }
 
-  const handleClose = async () => {
+
+
+  const handleLockAndOpenDonations = async (password) => {
     setActionLoading(true);
     setError(null);
 
     try {
+      // Re-authenticate with Firebase
+      const { reauthenticateWithPassword } = await import("../../services/authService");
+      const reAuthResult = await reauthenticateWithPassword(password);
+      if (!reAuthResult.success) {
+        throw new Error( "Incorrect password. Please try again.");
+      }
+
       if (!window.ethereum) {
         throw new Error("MetaMask not found.");
       }
@@ -303,8 +419,8 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
 
       const idToken = await user.getIdToken();
 
-      // Step 1: prepare close
-      const prepareResponse = await fetch(`${backendUrl}/api/campaigns/prepare-close`, {
+      // Step 1: Prepare beneficiary data from backend
+      const prepareResponse = await fetch(`${backendUrl}/api/beneficiaries/prepare-final-batch`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -318,7 +434,7 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
       const prepared = await prepareResponse.json();
 
       if (!prepareResponse.ok) {
-        throw new Error(prepared.message || prepared.error || "Prepare close failed.");
+        throw new Error(prepared.message || prepared.error || "Failed to prepare beneficiaries.");
       }
 
       const provider = new ethers.BrowserProvider(window.ethereum);
@@ -335,30 +451,113 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
 
       const contract = new ethers.Contract(campaign.campaignAddress, HOPECampaignABI.abi, signer);
 
-      let registerTxHash = null;
+      // Step 2: Call combined function to register, lock, and open donations in one transaction
+      console.log("Registering beneficiaries, locking, and opening donations...");
+      const tx = await contract.registerLockAndOpenDonations(
+        prepared.claimHashes || [],
+        prepared.finalManifestCID || "",
+        prepared.count || 0
+      );
+      const receipt = await tx.wait();
+      const txHash = receipt.hash;
 
-      // Step 2: register beneficiaries on-chain only if drafts exist
-      if (prepared.count > 0) {
-        const registerTx = await contract.registerBeneficiaries(
-          prepared.claimHashes,
-          prepared.finalManifestCID,
-          prepared.count
+      // Step 3A: Commit beneficiary registration to Firestore
+      const finalBatchCommitResponse = await fetch(`${backendUrl}/api/beneficiaries/commit-final-batch`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          campaignAddress: campaign.campaignAddress,
+          batchId: prepared.batchId,
+          txHash,
+        }),
+      });
+
+      const finalBatchCommitted = await finalBatchCommitResponse.json();
+
+      if (!finalBatchCommitResponse.ok) {
+        throw new Error(
+          `${finalBatchCommitted.message || finalBatchCommitted.error || "Final batch commit failed."} If blockchain transaction succeeded, treat this as reconciliation-required.`
         );
-        const registerReceipt = await registerTx.wait();
-        registerTxHash = registerReceipt.hash;
       }
 
-      // Step 3: lock beneficiaries
-      const lockTx = await contract.lockBeneficiaries();
-      const lockReceipt = await lockTx.wait();
-      const lockTxHash = lockReceipt.hash;
+      // Step 3B: Commit lock/open donation state to Firestore
+      const lockCommitResponse = await fetch(`${backendUrl}/api/beneficiaries/commit-lock`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          campaignAddress: campaign.campaignAddress,
+          txHash,
+        }),
+      });
 
-      // Step 4: close campaign
-      const closeTx = await contract.closeCampaign();
-      const closeReceipt = await closeTx.wait();
-      const closeTxHash = closeReceipt.hash;
+      const lockCommitted = await lockCommitResponse.json();
 
-      // Step 5: commit close to backend / firestore
+      if (!lockCommitResponse.ok) {
+        throw new Error(
+          `${lockCommitted.message || lockCommitted.error || "Lock commit failed."} If blockchain transaction succeeded, treat this as reconciliation-required.`
+        );
+      }
+
+      onCloseSuccess({
+        status: "active",
+        isActive: true,
+        beneficiariesLocked: true,
+        donationsOpen: true,
+      });
+    } catch (err) {
+      console.error(err);
+      setError(readableError(err));
+    } finally {
+      setActionLoading(false);
+      setShowPasswordModal(false);
+    }
+  };
+
+  const handleCloseCampaign = async (password) => {
+    setActionLoading(true);
+    setError(null);
+
+    try {
+      // Re-authenticate with Firebase
+      const { reauthenticateWithPassword } = await import("../../services/authService");
+      const reAuthResult = await reauthenticateWithPassword(password);
+      if (!reAuthResult.success) {
+        throw new Error(reAuthResult.error || "Password is incorrect.");
+      }
+
+      if (!window.ethereum) {
+        throw new Error("MetaMask not found.");
+      }
+
+      const idToken = await user.getIdToken();
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+
+      const signerAddress = await signer.getAddress();
+      if (
+        campaign.partnerWallet &&
+        signerAddress.toLowerCase() !== campaign.partnerWallet.toLowerCase()
+      ) {
+        throw new Error("Connected wallet does not match the campaign partner wallet.");
+      }
+
+      const contract = new ethers.Contract(campaign.campaignAddress, HOPECampaignABI.abi, signer);
+
+      // Close campaign on-chain (will also close donations automatically)
+      console.log("Closing campaign and donations...");
+      const tx = await contract.closeCampaign();
+      const receipt = await tx.wait();
+      const txHash = receipt.hash;
+
+      // Commit close to backend / firestore
       const commitResponse = await fetch(`${backendUrl}/api/campaigns/commit-close`, {
         method: "POST",
         headers: {
@@ -367,10 +566,8 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
         },
         body: JSON.stringify({
           campaignAddress: campaign.campaignAddress,
-          closeSessionId: prepared.closeSessionId,
-          registerTxHash,
-          lockTxHash,
-          closeTxHash,
+          closeSessionId: Date.now().toString(),
+          closeTxHash: txHash,
         }),
       });
 
@@ -378,67 +575,175 @@ const CampaignManagement = ({ campaign, onCloseSuccess }) => {
 
       if (!commitResponse.ok) {
         throw new Error(
-          `${committed.message || committed.error || "Commit close failed."} If blockchain transactions succeeded, treat this as reconciliation-required.`
+          `${committed.message || committed.error || "Commit close failed."} If blockchain transaction succeeded, treat as reconciliation-required.`
         );
       }
 
       onCloseSuccess({
         status: "closed",
         isActive: false,
-        beneficiariesLocked: true,
+        donationsOpen: false,
       });
     } catch (err) {
       console.error(err);
+
+      // The blockchain tx may have succeeded before the error was thrown
+      // (e.g. server was down when commit-close was called, or MetaMask
+      // threw after the tx was already mined). Re-read on-chain state to check.
+      try {
+        const readProvider = new ethers.BrowserProvider(window.ethereum);
+        const readContract = new ethers.Contract(
+          campaign.campaignAddress,
+          HOPECampaignABI.abi,
+          readProvider
+        );
+        const details = await readContract.getCampaignDetails();
+        const isStillActive = details[10]; // index 10 = isActive
+
+        if (!isStillActive) {
+          // Campaign is already closed on-chain — just need to sync Firestore.
+          setError("Campaign closed on-chain but sync incomplete. Retrying sync...");
+          const freshToken = await user.getIdToken(true); // force refresh
+          const retryResponse = await fetch(`${backendUrl}/api/campaigns/commit-close`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${freshToken}`,
+            },
+            body: JSON.stringify({
+              campaignAddress: campaign.campaignAddress,
+              closeSessionId: Date.now().toString(),
+              closeTxHash: txHash || "reconciled",
+            }),
+          });
+
+          if (retryResponse.ok) {
+            setError("");
+            onCloseSuccess({
+              status: "closed",
+              isActive: false,
+              donationsOpen: false,
+            });
+            return;
+          }
+
+          // Retry also failed — tell the user to contact support
+          setError(
+            "Campaign is closed on-chain but Firestore sync failed twice. " +
+            `Please contact support with campaign address: ${campaign.campaignAddress}`
+          );
+          return;
+        }
+      } catch (reconcileErr) {
+        console.error("Reconciliation check failed:", reconcileErr);
+        // Fall through to show the original error
+      }
+
       setError(readableError(err));
     } finally {
       setActionLoading(false);
-      setConfirmClose(false);
+      setShowPasswordModal(false);
     }
   };
 
+
   return (
     <>
-      <ConfirmModal
-        open={confirmClose}
-        title="Close this campaign?"
-        message="This will finalize all remaining draft beneficiaries on-chain, lock beneficiary registration, and close the campaign. This action is permanent."
-        confirmLabel="Yes, Close Campaign"
-        confirmClass="bg-red-600 hover:bg-red-700"
-        onConfirm={handleClose}
-        onCancel={() => setConfirmClose(false)}
+      <PasswordConfirmModal
+        open={showPasswordModal}
+        onConfirm={(password) => {
+          if (pendingAction === "lock") {
+            handleLockAndOpenDonations(password);
+          } else if (pendingAction === "close") {
+            handleCloseCampaign(password);
+          }
+        }}
+        onCancel={() => {
+          setShowPasswordModal(false);
+          setPendingAction(null);
+        }}
         loading={actionLoading}
+        title={pendingAction === "lock" ? "Register & Lock Beneficiaries" : "Close Campaign"}
+        message={
+          pendingAction === "lock"
+            ? "Enter your password to register and lock beneficiaries on-chain. This will open the donation window."
+            : "Enter your password to close this campaign. This action is permanent and will stop all donations."
+        }
+        buttonText={pendingAction === "lock" ? "Register & Lock" : "Close Campaign"}
       />
 
       <div className="bg-white border border-gray-200 rounded-2xl p-5 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-gray-700">Campaign Management</h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            Closing now triggers final beneficiary registration, beneficiary lock, and campaign closure in sequence.
+            Register and lock beneficiaries to open the donation window.
           </p>
         </div>
 
-        <button
-          onClick={() => setConfirmClose(true)}
-          disabled={actionLoading}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-sm font-medium transition-all disabled:opacity-60"
-        >
-          <span className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-            <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"
-              />
-            </svg>
-          </span>
-          <div className="text-left">
-            <p className="font-semibold text-red-900">Close Campaign</p>
-            <p className="text-xs text-red-500 font-normal">
-              Finalize beneficiaries, lock, and close permanently
+        {stats.draftBeneficiaryCount + stats.beneficiaryCount === 0 && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <p className="text-sm text-blue-900 font-medium">No beneficiaries registered</p>
+            <p className="text-xs text-blue-700 mt-1">
+              Add beneficiaries to the draft list first, then register and lock them on-chain to open donations.
             </p>
           </div>
-        </button>
+        )}
+
+        {stats.draftBeneficiaryCount + stats.beneficiaryCount > 0 && !campaign.donationsOpen && (
+          <button
+            onClick={() => {
+              setPendingAction("lock");
+              setShowPasswordModal(true);
+            }}
+            disabled={actionLoading}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 text-sm font-medium transition-all disabled:opacity-60"
+          >
+            <span className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                />
+              </svg>
+            </span>
+            <div className="text-left">
+              <p className="font-semibold text-teal-900">Register & Lock Beneficiaries</p>
+              <p className="text-xs text-teal-700 font-normal">
+                Lock {stats.draftBeneficiaryCount} beneficiaries on-chain and open donations
+              </p>
+            </div>
+          </button>
+        )}
+
+        {campaign.donationsOpen && (
+          <button
+            onClick={() => {
+              setPendingAction("close");
+              setShowPasswordModal(true);
+            }}
+            disabled={actionLoading}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 text-sm font-medium transition-all disabled:opacity-60"
+          >
+            <span className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636"
+                />
+              </svg>
+            </span>
+            <div className="text-left">
+              <p className="font-semibold text-red-900">Close Campaign</p>
+              <p className="text-xs text-red-700 font-normal">
+                Close campaign and stop donations
+              </p>
+            </div>
+          </button>
+        )}
 
         {error && (
           <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
@@ -468,12 +773,15 @@ const PartnerCampaignDetail = () => {
   const [stats, setStats] = useState({
     raisedAmount: "0",
     beneficiaryCount: 0,
+    draftBeneficiaryCount: 0,
     donorCount: 0,
+    claimedAmount: 0,
     claimedCount: 0,
     goalAmount: "0",
   });
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [statsError, setStatsError] = useState(null);
 
   const handleCloseSuccess = (patch) => {
     setCampaign((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -492,6 +800,8 @@ const PartnerCampaignDetail = () => {
 
         if (snapshot.empty) {
           setCampaign(null);
+          setStatsError("Campaign not found in database");
+          setLoading(false);
           return;
         }
 
@@ -505,49 +815,118 @@ const PartnerCampaignDetail = () => {
           return;
         }
 
-        const provider = getRpcProvider();
-        const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider);
-
-        const details = await contract.getCampaignDetails();
-
-        const donationFilter = contract.filters.DonationReceived();
-        const donationEvents = await contract.queryFilter(donationFilter, 0, "latest");
-
-        const uniqueDonors = new Set(
-          donationEvents.map((event) => event.args.donor.toLowerCase())
-        ).size;
-
-        const derivedStatus =
-          details._isActive
-            ? (data.status === "closed" ? "closed" : "active")
-            : (data.status || "completed");
-
         setCampaign({
           ...data,
           campaignAddress,
           imageUrl: data.imageUrl || "",
-          documentCID: details._documentCID || data.documentCID || "",
-          partnerWallet: details._partner,
-          status: derivedStatus,
-          goalAmount: details._goalAmount.toString(),
-          raisedAmount: details._raisedAmount.toString(),
-          deadline: details._deadline.toString(),
-          beneficiaryCount: Number(details._beneficiaryCount),
-          claimedCount: Number(details._claimedCount),
-          isActive: details._isActive,
-          beneficiariesLocked: details._beneficiariesLocked,
+          documentCID: data.documentCID || "",
+          status: data.status || "pending",
         });
 
-        setStats({
-          raisedAmount: details._raisedAmount.toString(),
-          beneficiaryCount: Number(details._beneficiaryCount),
-          donorCount: uniqueDonors,
-          claimedCount: Number(details._claimedCount),
-          goalAmount: details._goalAmount.toString(),
-        });
+        // Fetch on-chain data separately to better handle errors
+        try {
+          const provider = getRpcProvider();
+          const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider);
+
+          console.log("Fetching campaign details for:", campaignAddress);
+          const details = await contract.getCampaignDetails();
+          console.log("Campaign details retrieved:", details);
+          
+          // Extract values using positional indexing (most reliable with ethers v6)
+          const partner = details[0];
+          const title = details[1];
+          const location = details[2];
+          const goalAmount = details[3];
+          const raisedAmount = details[4];
+          const claimedAmount = details[5];   // new field
+          const remainingAmount = details[6]; // new field
+          const deadline = details[7];        // was [5]
+          const beneficiaryCount = details[8]; // was [6]
+          const claimedCount = details[9];     // was [7]
+          const isActive = details[10];        // was [8]
+          const isPaused = details[11];        // was [9]
+          const beneficiariesLocked = details[12]; // was [10]
+          const donationsOpen = details[13];   // was [11]
+          const documentCID = details[14];     // was [12]
+          
+          // Log individual fields to verify they're accessible
+          console.log("Extracted values:", {
+            partner,
+            title,
+            beneficiaryCount: beneficiaryCount?.toString?.() || beneficiaryCount,
+            raisedAmount: raisedAmount?.toString?.() || raisedAmount,
+            isActive,
+          });
+
+          const donationFilter = contract.filters.DonationReceived();
+          const donationEvents = await contract.queryFilter(donationFilter, 0, "latest");
+
+          const uniqueDonors = new Set(
+            donationEvents.map((event) => event.args.donor.toLowerCase())
+          ).size;
+
+          const derivedStatus =
+            isActive
+              ? (data.status === "closed" ? "closed" : "active")
+              : (data.status || "completed");
+
+          const onChainData = {
+            documentCID: documentCID || data.documentCID || "",
+            partnerWallet: partner,
+            status: derivedStatus,
+            goalAmount: goalAmount.toString(),
+            raisedAmount: raisedAmount.toString(),
+            claimedAmount: claimedAmount.toString(),
+            deadline: deadline.toString(),
+            beneficiaryCount: Number(beneficiaryCount),
+            claimedCount: Number(claimedCount),
+            isActive: isActive,
+            isPaused: isPaused,
+            beneficiariesLocked: beneficiariesLocked,
+            donationsOpen: donationsOpen,
+          };
+
+          console.log("On-chain data to set:", onChainData);
+
+          setCampaign((prev) => (prev ? { ...prev, ...onChainData } : prev));
+
+          // Fetch draft beneficiaries count
+          let draftCount = 0;
+          try {
+            const beneficiariesRef = collection(db, "campaigns", data.id, "beneficiaries");
+            const beneficiariesSnapshot = await getDocs(beneficiariesRef);
+            draftCount = beneficiariesSnapshot.docs.filter(
+              (doc) => doc.data().status === "draft"
+            ).length;
+            console.log("Draft beneficiaries count:", draftCount);
+            console.log({
+              claimedAmount: claimedAmount.toString(),
+              claimedCount: claimedCount.toString()
+            });
+          } catch (draftErr) {
+            console.warn("Failed to fetch draft beneficiaries:", draftErr);
+          }
+
+          setStats({
+            raisedAmount: raisedAmount.toString(),
+            beneficiaryCount: Number(beneficiaryCount),
+            claimedAmount: claimedAmount.toString(),
+            draftBeneficiaryCount: draftCount,
+            donorCount: uniqueDonors,
+            claimedCount: Number(claimedCount),
+            goalAmount: goalAmount.toString(),
+          });
+
+          setStatsError(null);
+
+        } catch (onChainErr) {
+          console.error("Failed to fetch on-chain campaign data:", onChainErr);
+          setStatsError(`Failed to fetch on-chain data: ${onChainErr.message}`);
+        }
       } catch (err) {
         console.error("Failed to fetch partner campaign detail:", err);
         setCampaign(null);
+        setStatsError(err.message);
       } finally {
         setLoading(false);
       }
@@ -583,7 +962,9 @@ const PartnerCampaignDetail = () => {
   if (!campaign) {
     return (
       <div className="p-6 max-w-7xl mx-auto text-center py-20">
-        <p className="text-gray-500">Campaign not found.</p>
+        <p className="text-gray-500">
+          {statsError || "Campaign not found."}
+        </p>
         <button onClick={() => navigate(-1)} className="mt-4 text-teal-600 text-sm underline">
           Go back
         </button>
@@ -608,6 +989,19 @@ const PartnerCampaignDetail = () => {
         </svg>
         Back to Campaigns
       </button>
+
+      {statsError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
+          <svg className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-amber-900">Unable to fetch on-chain data</p>
+            <p className="text-xs text-amber-700 mt-0.5">{statsError}</p>
+            <p className="text-xs text-amber-600 mt-1">Displaying cached data. Try refreshing the page.</p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         {campaign.imageUrl && (
@@ -667,7 +1061,7 @@ const PartnerCampaignDetail = () => {
           icon={Icons.users}
           label="Beneficiaries"
           value={stats.beneficiaryCount.toLocaleString()}
-          sub="registered on-chain"
+          sub={`${stats.draftBeneficiaryCount.toLocaleString()} draft registrations`}
         />
         <StatCard
           icon={Icons.donors}
@@ -677,9 +1071,9 @@ const PartnerCampaignDetail = () => {
         />
         <StatCard
           icon={Icons.claimed}
-          label="Aid Claimed"
-          value={stats.claimedCount.toLocaleString()}
-          sub={`${claimPct}% of beneficiaries`}
+          label="Amount Claimed"
+          value={formatUSDC(stats.claimedAmount )}
+          sub={`${stats.claimedCount.toLocaleString()} beneficiaries claimed`}
         />
         <StatCard
           icon={Icons.target}
@@ -767,9 +1161,9 @@ const PartnerCampaignDetail = () => {
             </div>
           </div>
 
-          <CampaignManagement campaign={campaign} onCloseSuccess={handleCloseSuccess} />
+          <CampaignManagement campaign={campaign} stats={stats} onCloseSuccess={handleCloseSuccess} />
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          {/* <div className="bg-white border border-gray-200 rounded-2xl p-5">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Claim Progress</h2>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
@@ -788,7 +1182,7 @@ const PartnerCampaignDetail = () => {
                 {Math.max(stats.beneficiaryCount - stats.claimedCount, 0)} beneficiaries yet to claim
               </p>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

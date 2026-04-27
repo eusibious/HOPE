@@ -1,4 +1,4 @@
-function CampaignCard({ title, location, raised, target }) {
+function CampaignCard({ title, location, raised, target, status = 'active', donationsOpen = false }) {
   return (
     <article className="bg-white rounded-lg border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex justify-between items-start mb-3">
@@ -6,9 +6,24 @@ function CampaignCard({ title, location, raised, target }) {
           <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
           <p className="text-sm text-slate-600">{location}</p>
         </div>
-        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">
-          Active
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+            status === 'active' 
+              ? 'bg-emerald-100 text-emerald-800' 
+              : 'bg-gray-100 text-gray-800'
+          }`}>
+            {status === 'active' ? 'Active' : status}
+          </span>
+          {status === 'active' && (
+            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium text-center ${
+              donationsOpen 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-amber-100 text-amber-800'
+            }`}>
+              {donationsOpen ? 'Accepting' : 'Closed'}
+            </span>
+          )}
+        </div>
       </div>
       <div className="mt-5">
         <div className="flex-between text-caption">

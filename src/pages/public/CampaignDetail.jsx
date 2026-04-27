@@ -16,7 +16,8 @@ function CampaignDetail() {
   const [loading, setLoading] = useState(true)
   const [showImage, setShowImage] = useState(false)
   const [showDoc, setShowDoc] = useState(false)
-  const [recentTransactions, setRecentTransactions] = useState([])
+  const [activities, setActivities] = useState([])
+  const [activityFilter, setActivityFilter] = useState('all')
 
   const getRpcProvider = () => {
     const rpcUrl = import.meta.env.VITE_RPC_URL
@@ -90,6 +91,7 @@ function CampaignDetail() {
         beneficiaryCount: Number(details._beneficiaryCount),
         claimedCount: Number(details._claimedCount),
         documentCID: details._documentCID,
+        donationsOpen: details[13] || false,
       }
     } catch (err) {
       console.error('Blockchain fetch failed:', err)
@@ -99,34 +101,19 @@ function CampaignDetail() {
 
   const fetchRecentActivity = async (campaignAddress) => {
     try {
-      const provider = getRpcProvider()
-      const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider)
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3001'
 
-      const donationFilter = contract.filters.DonationReceived()
+      const response = await fetch(`${backendUrl}/api/activity/campaign/${campaignAddress}`)
+      const data = await response.json()
 
-      const events = await contract.queryFilter(donationFilter, 0, 'latest')
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || 'Failed to fetch activity log')
+      }
 
-      const items = await Promise.all(
-        events.slice().reverse().map(async (event) => {
-          const block = await provider.getBlock(event.blockNumber)
-
-          return {
-            date: block?.timestamp
-              ? new Date(block.timestamp * 1000).toLocaleDateString('en-IN')
-              : 'N/A',
-            from: event.args.donor,
-            to: campaignAddress,
-            amount: `+$${formatUSDC(event.args.amount).toLocaleString()}`,
-            txHash: event.transactionHash,
-            status: 'Received',
-          }
-        })
-      )
-
-      setRecentTransactions(items)
+      setActivities(data.activities || [])
     } catch (err) {
       console.error('Recent activity fetch failed:', err)
-      setRecentTransactions([])
+      setActivities([])
     }
   }
 
@@ -180,6 +167,7 @@ function CampaignDetail() {
           isActive: chainData?.isActive ?? false,
           beneficiaryCount: chainData?.beneficiaryCount || 0,
           claimedCount: chainData?.claimedCount || 0,
+          donationsOpen: chainData?.donationsOpen ?? false,
           status: displayStatus,
         })
       } catch (err) {
@@ -212,7 +200,8 @@ function CampaignDetail() {
     campaign.status === 'paused' ||
     campaign.status === 'closed' ||
     campaign.status === 'completed' ||
-    campaign.isActive === false
+    campaign.isActive === false ||
+    !campaign.donationsOpen
 
   const donateButtonLabel =
     campaign?.status === 'paused'
@@ -221,6 +210,8 @@ function CampaignDetail() {
       ? 'Campaign Closed'
       : campaign?.status === 'completed' || campaign?.isActive === false
       ? 'Campaign Ended'
+      : !campaign?.donationsOpen
+      ? 'Donations not yet open'
       : 'Donate now'
 
   const statusBadgeClass =
@@ -237,6 +228,46 @@ function CampaignDetail() {
     { label: 'Beneficiaries', value: campaign?.beneficiaryCount || 0 },
     { label: 'Claims', value: campaign?.claimedCount || 0 },
   ]
+
+
+  const activityFilters = [
+    { key: 'all', label: 'All' },
+    { key: 'donation', label: 'Donations' },
+    { key: 'claim', label: 'Claims' },
+    // { key: 'beneficiary', label: 'Beneficiaries' },
+    { key: 'lifecycle', label: 'Lifecycle' },
+  ]
+
+  const filteredActivities = useMemo(() => {
+    if (activityFilter === 'all') return activities
+    return activities.filter((item) => item.group === activityFilter || item.type === activityFilter)
+  }, [activities, activityFilter])
+
+  const visibleActivities = filteredActivities.slice(0, 7)
+
+  const getActivityIcon = (type) => {
+    if (type === 'donation') return '💰'
+    if (type === 'claim') return '✅'
+    if (type === 'beneficiaries_registered') return '🧾'
+    if (type === 'beneficiaries_locked') return '🔒'
+    if (type === 'campaign_created') return '🚀'
+    if (type === 'campaign_closed') return '🏁'
+    if (type === 'campaign_paused') return '⏸️'
+    if (type === 'campaign_unpaused') return '▶️'
+    return '📌'
+  }
+
+  const getBadgeClass = (tone) => {
+    const map = {
+      green: 'bg-green-50 text-green-700 border-green-200',
+      blue: 'bg-blue-50 text-blue-700 border-blue-200',
+      purple: 'bg-purple-50 text-purple-700 border-purple-200',
+      amber: 'bg-amber-50 text-amber-700 border-amber-200',
+      slate: 'bg-slate-100 text-slate-700 border-slate-200',
+    }
+
+    return map[tone] || map.slate
+  }
 
   if (loading) return <div>Loading...</div>
   if (!campaign) return <div>Campaign not found</div>
@@ -357,72 +388,76 @@ function CampaignDetail() {
             </p>
           </div>
 
-          <div className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             <div className="border-b border-slate-200 px-6 py-4 sm:px-8">
               <h2 className="text-lg font-semibold text-slate-900">Recent activity</h2>
               <p className="mt-1 text-sm text-slate-600">
-                All verified fund movements for this campaign
+                On-chain campaign events including creation, donations, beneficiary registration, locks, claims, and closure.
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50">
-                  <tr>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">Date</th>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">Addresses</th>
-                    <th className="px-6 py-3 font-semibold text-slate-600 sm:px-8">Amount / Transaction</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 sm:px-8">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentTransactions.length > 0 ? (
-                    recentTransactions.map((tx, idx) => (
-                      <tr key={tx.txHash || idx} className="border-b border-slate-100 last:border-0">
-                        <td className="px-6 py-4 text-slate-700 sm:px-8 align-top">
-                          {tx.date}
-                        </td>
-
-                        <td className="px-6 py-4 text-slate-700 sm:px-8 align-top">
-                          <div className="space-y-2">
-                            <div>
-                              <p className="text-xs text-slate-500">From</p>
-                              <p className="font-mono text-xs break-all">{tx.from}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-slate-500">To</p>
-                              <p className="font-mono text-xs break-all">{tx.to}</p>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 sm:px-8 align-top">
-                          <div className="space-y-2">
-                            <p className="font-semibold text-emerald-600">{tx.amount}</p>
-                            <div>
-                              <p className="text-xs text-slate-500">Tx Hash</p>
-                              <p className="font-mono text-xs break-all">{tx.txHash}</p>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 text-right sm:px-8 align-top">
-                          <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                            {tx.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="px-6 py-6 text-sm text-slate-500 sm:px-8">
-                        No donation activity available yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 px-6 py-3 sm:px-8">
+              {activityFilters.map((filter) => (
+                <button
+                  key={filter.key}
+                  type="button"
+                  onClick={() => setActivityFilter(filter.key)}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                    activityFilter === filter.key
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
             </div>
+
+            <div className="divide-y divide-slate-100">
+              {visibleActivities.length > 0 ? (
+                visibleActivities.map((item) => (
+                  <div key={item.id} className="flex items-start gap-4 px-6 py-4 sm:px-8">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-lg">
+                      {getActivityIcon(item.type)}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-slate-900">{item.title}</p>
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getBadgeClass(item.tone)}`}>
+                          {item.badge}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-500">{item.subtitle}</p>
+                      <p className="mt-1 font-mono text-xs text-slate-400 break-all">
+                        Tx: {item.txHash}
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      {item.amountLabel && (
+                        <p className="font-semibold text-emerald-600">{item.amountLabel}</p>
+                      )}
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {item.relativeTime || item.date}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-6 py-8 text-sm text-slate-500 sm:px-8">
+                  No on-chain activity available yet.
+                </div>
+              )}
+            </div>
+
+            {filteredActivities.length > 7 && (
+              <div className="border-t border-slate-200 px-6 py-3 text-center sm:px-8">
+                <span className="text-sm font-semibold text-slate-600">
+                  Showing 7 of {filteredActivities.length} events
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

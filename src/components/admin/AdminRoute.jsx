@@ -1,7 +1,7 @@
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, Outlet } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 
-function AdminRoute({ children }) {
+function AdminRoute() {
   const { isAuthenticated, hasRole, loading } = useAuth()
   const location = useLocation()
 
@@ -17,11 +17,11 @@ function AdminRoute({ children }) {
   }
 
   if (!isAuthenticated || !hasRole('1')) {
-    // Redirect to login with the attempted location
-    return <Navigate to="/login" state={{ from: location }} replace />
+    // Redirect to admin login with the attempted location
+    return <Navigate to="/admin/login" state={{ from: location }} replace />
   }
 
-  return children
+  return <Outlet />
 }
 
 export default AdminRoute

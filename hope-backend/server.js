@@ -30,6 +30,266 @@ const auth = admin.auth();
 
 const HARDHAT_RPC_URL = process.env.HARDHAT_RPC_URL || "http://127.0.0.1:8545";
 const BENEFICIARY_SECRET = process.env.BENEFICIARY_SECRET || "change-this-in-env";
+const FACTORY_ADDRESS = process.env.FACTORY_ADDRESS ;
+
+const activityProvider = () => new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+
+const getFactoryContract = () => {
+  return new ethers.Contract(
+    FACTORY_ADDRESS,
+     HOPE_CAMPAIGN_READ_ABI,
+    activityProvider()
+  );
+};
+
+const formatUSDC = (v) => Number(ethers.formatUnits(v || 0, 6));
+
+const shortAddress = (addr = "") =>
+  addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : "—";
+
+const getRelativeTime = (ts) => {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+};
+
+const readBlockTimestamp = async (provider, blockNumber, cache) => {
+  if (cache.has(blockNumber)) return cache.get(blockNumber);
+  const block = await provider.getBlock(blockNumber);
+  const ts = block?.timestamp || 0;
+  cache.set(blockNumber, ts);
+  return ts;
+};
+
+//converts event into readable form
+const normalizeEvent = async ({ provider, event, campaign, cache }) => {
+  const ts = await readBlockTimestamp(provider, event.blockNumber, cache);
+
+  const base = {
+    id: `${event.transactionHash}-${event.index}`,
+    campaignAddress: campaign.campaignAddress,
+    campaignTitle: campaign.title || "Untitled",
+    txHash: event.transactionHash,
+    blockNumber: event.blockNumber,
+    timestamp: ts,
+    relativeTime: getRelativeTime(ts),
+  };
+
+  const name = event.fragment?.name;
+
+  if (name === "CampaignCreated") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Campaign created",
+      subtitle: `Created by ${shortAddress(event.args.partner)}`,
+      badge: "Create",
+      tone: "blue",
+    };
+  }
+
+  if (name === "DonationReceived") {
+    const amt = formatUSDC(event.args.amount);
+    return {
+      ...base,
+      type: "donation",
+      title: "Donation received",
+      subtitle: shortAddress(event.args.donor),
+      amount: amt,
+      amountLabel: `+$${amt}`,
+      badge: "Donation",
+      tone: "green",
+    };
+  }
+
+  if (name === "BeneficiariesRegistered") {
+    return {
+      ...base,
+      type: "registration",
+      title: "Beneficiaries registered",
+      subtitle: `${Number(event.args.count)} beneficiaries`,
+      badge: "Register",
+      tone: "purple",
+    };
+  }
+
+  if (name === "BeneficiariesRegisteredAndLocked") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Beneficiaries registered & locked",
+      subtitle: `${Number(event.args.count)} beneficiaries`,
+      badge: "Lock",
+      tone: "purple",
+    };
+  }
+
+  if (name === "BeneficiariesLocked") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Beneficiaries locked",
+      subtitle: `${Number(event.args.count)} beneficiaries`,
+      badge: "Lock",
+      tone: "purple",
+    };
+  }
+
+  if (name === "FundsClaimed") {
+    const amt = formatUSDC(event.args.amount);
+    return {
+      ...base,
+      type: "claim",
+      title: "Claim processed",
+      subtitle: "Beneficiary claimed",
+      amount: amt,
+      amountLabel: `+$${amt}`,
+      badge: "Claim",
+      tone: "blue",
+    };
+  }
+
+  if (name === "CampaignClosed") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Campaign closed",
+      badge: "Close",
+      tone: "slate",
+    };
+  }
+
+  if (name === "CampaignPaused") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Campaign paused",
+      badge: "Pause",
+      tone: "slate",
+    };
+  }
+
+  if (name === "CampaignUnpaused") {
+    return {
+      ...base,
+      type: "lifecycle",
+      title: "Campaign resumed",
+      badge: "Resume",
+      tone: "slate",
+    };
+  }
+
+  return null;
+};
+
+const deduplicateActivityEvents = (events) => {
+  const grouped = new Map();
+
+  for (const event of events) {
+    const key = event.transactionHash;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(event);
+  }
+
+  const result = [];
+
+  for (const txEvents of grouped.values()) {
+    const hasCombined = txEvents.some(
+      (e) => e.fragment?.name === "BeneficiariesRegisteredAndLocked"
+    );
+
+    for (const event of txEvents) {
+      const name = event.fragment?.name;
+
+      if (
+        hasCombined &&
+        (name === "BeneficiariesRegistered" || name === "BeneficiariesLocked")
+      ) {
+        continue;
+      }
+
+      result.push(event);
+    }
+  }
+
+  return result;
+};
+
+const getActivitiesForCampaign = async (campaign) => {
+  const provider = activityProvider();
+
+  if (!campaign?.campaignAddress || !ethers.isAddress(campaign.campaignAddress)) {
+    return [];
+  }
+
+  const contract = new ethers.Contract(
+    campaign.campaignAddress,
+     HOPE_CAMPAIGN_READ_ABI,
+    provider
+  );
+
+  const cache = new Map();
+
+  const safeQuery = async (label, filterBuilder) => {
+    try {
+      return await contract.queryFilter(filterBuilder(), 0, "latest");
+    } catch (err) {
+      console.warn(`Activity query skipped: ${label}`, err?.message || err);
+      return [];
+    }
+  };
+
+  const groups = await Promise.all([
+    safeQuery("DonationReceived", () => contract.filters.DonationReceived()),
+    safeQuery("BeneficiariesRegistered", () => contract.filters.BeneficiariesRegistered()),
+    safeQuery("BeneficiariesRegisteredAndLocked", () => contract.filters.BeneficiariesRegisteredAndLocked()),
+    safeQuery("BeneficiariesLocked", () => contract.filters.BeneficiariesLocked()),
+    safeQuery("FundsClaimed", () => contract.filters.FundsClaimed()),
+    safeQuery("CampaignClosed", () => contract.filters.CampaignClosed()),
+    safeQuery("CampaignPaused", () => contract.filters.CampaignPaused()),
+    safeQuery("CampaignUnpaused", () => contract.filters.CampaignUnpaused()),
+  ]);
+
+  let events = groups.flat();
+  events = deduplicateActivityEvents(events);
+
+  if (FACTORY_ADDRESS && ethers.isAddress(FACTORY_ADDRESS)) {
+    try {
+      const factory = getFactoryContract();
+
+      const created = await factory.queryFilter(
+        factory.filters.CampaignCreated(campaign.campaignAddress),
+        0,
+        "latest"
+      );
+
+      events = [...events, ...created];
+    } catch (err) {
+      console.warn("CampaignCreated query skipped:", err?.message || err);
+    }
+  }
+  
+
+  const normalized = await Promise.all(
+    events.map((event) =>
+      normalizeEvent({
+        provider,
+        event,
+        campaign,
+        cache,
+      })
+    )
+  );
+
+  return normalized
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
+      return String(b.id).localeCompare(String(a.id));
+    });
+};
 
 // ─── Nodemailer Transporter ──────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
@@ -65,8 +325,18 @@ class ClientInputError extends Error {
 
 // ─── Contract Read Helpers ───────────────────────────────────────────────────
 const HOPE_CAMPAIGN_READ_ABI = [
-  "function getCampaignDetails() view returns (address _partner, string _title, string _location, uint256 _goalAmount, uint256 _raisedAmount, uint256 _deadline, uint256 _beneficiaryCount, uint256 _claimedCount, bool _isActive, bool _beneficiariesLocked, string _documentCID)",
+    // Campaign events
+  "function getCampaignDetails() view returns (address _partner, string _title, string _location, uint256 _goalAmount, uint256 _raisedAmount, uint256 _claimedAmount, uint256 _remainingAmount, uint256 _deadline, uint256 _beneficiaryCount, uint256 _claimedCount, bool _isActive, bool _isPaused, bool _beneficiariesLocked, bool _donationsOpen, string _documentCID)",
+  "event BeneficiariesRegisteredAndLocked(uint256 count, string ipfsCID, uint256 timestamp)",
+  "event DonationReceived(address indexed donor, uint256 amount, uint256 totalRaised)",
   "event BeneficiariesRegistered(uint256 count, string ipfsCID, uint256 timestamp)",
+  "event BeneficiariesLocked(uint256 count, uint256 timestamp)",
+  "event FundsClaimed(bytes32 indexed claimHash, uint256 amount, uint256 claimedCount, uint256 remainingAmount, uint256 timestamp)",
+  "event CampaignClosed(uint256 totalRaised, uint256 totalClaimed, uint256 timestamp)",
+  "event CampaignPaused()",
+  "event CampaignUnpaused()",
+    // Factory event
+   "event CampaignCreated(address indexed campaignAddress, address indexed partner, string title, uint256 goalAmount, uint256 deadline)"
 ];
 
 const getCampaignReadContract = (campaignAddress) => {
@@ -117,7 +387,10 @@ const verifyAdmin = async (req, res, next) => {
     const decoded = await auth.verifyIdToken(idToken);
     const userDoc = await db.collection("users").doc(decoded.uid).get();
 
-    if (!userDoc.exists || userDoc.data()?.role !== 1) {
+    const role = userDoc.exists ? userDoc.data()?.role : null;
+
+    // Accept numeric or string roles (e.g., 1 or "1").
+    if (!userDoc.exists || String(role) !== "1") {
       return res.status(403).json({ error: "Forbidden. Admin access only." });
     }
 
@@ -147,7 +420,8 @@ const verifyPartner = async (req, res, next) => {
 
     const userData = userDoc.data();
 
-    if (userData?.role !== 2) {
+    // Accept numeric or string roles (e.g., 2 or "2").
+    if (String(userData?.role) !== "2") {
       return res.status(403).json({ error: "Forbidden. Partner access only." });
     }
 
@@ -369,7 +643,7 @@ const verifyBeneficiaryRegistrationReceipt = async (
     try {
       const parsed = iface.parseLog(log);
 
-      if (parsed?.name === "BeneficiariesRegistered") {
+      if (parsed?.name === "BeneficiariesRegistered" ||  parsed?.name === "BeneficiariesRegisteredAndLocked") {
         const count = Number(parsed.args.count);
         const ipfsCID = parsed.args.ipfsCID;
 
@@ -474,8 +748,8 @@ app.post("/api/approve-partner", verifyAdmin, async (req, res) => {
 
     const actionCodeSettings = {
       url: process.env.FRONTEND_URL
-        ? `${process.env.FRONTEND_URL}/login`
-        : "http://localhost:5173/login",
+        ? `${process.env.FRONTEND_URL}/admin/login`
+        : "http://localhost:5173/admin/login",
       handleCodeInApp: false,
     };
 
@@ -831,45 +1105,69 @@ app.get("/api/beneficiaries/:campaignAddress", verifyPartner, async (req, res) =
 });
 
 // ─── POST /api/claims/verify-qr ──────────────────────────────────────────────
-// Partner scans QR, frontend sends claimHash, backend verifies and returns beneficiary details
+// Partner scans QR or enters claim code manually.
+// Accepts either claimHash (0x... from QR scan) or claimCode (8-char from physical card).
 app.post("/api/claims/verify-qr", verifyPartner, async (req, res) => {
   try {
-    const { campaignAddress, claimHash } = req.body || {};
- 
+    const { campaignAddress, claimHash: rawClaimHash, claimCode } = req.body || {};
+
     if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
       return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
     }
- 
-    if (!claimHash || !claimHash.startsWith("0x")) {
-      return buildError(res, 400, "invalid-claim-hash", "Valid claimHash is required.");
+
+    // Must provide either a claimHash or a claimCode — not neither
+    if (!rawClaimHash && !claimCode) {
+      return buildError(res, 400, "invalid-input", "Either claimHash or claimCode is required.");
     }
- 
+
     const campaignDoc = await getCampaignDocByAddress(campaignAddress);
- 
+
     if (!campaignDoc) {
       return buildError(res, 404, "campaign-not-found", "Campaign not found.");
     }
- 
+
     if (campaignDoc.data.partnerUid !== req.partnerUid) {
       return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
     }
- 
-    // Verify beneficiary exists in Firestore
-    const beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
-      .where("claimHash", "==", claimHash)
-      .limit(1)
-      .get();
- 
-    if (beneficiarySnapshot.empty) {
-      return buildError(res, 404, "beneficiary-not-found", "Beneficiary not found.");
+
+    // Look up beneficiary — by claimHash (QR scan) or claimCode (manual entry)
+    let claimHash = rawClaimHash || null;
+    let beneficiarySnapshot;
+
+    if (claimHash) {
+      beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+        .where("claimHash", "==", claimHash)
+        .limit(1)
+        .get();
+    } else {
+      beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
+        .where("claimCode", "==", claimCode.toUpperCase())
+        .limit(1)
+        .get();
     }
- 
+
+    if (beneficiarySnapshot.empty) {
+      return buildError(
+        res,
+        404,
+        "beneficiary-not-found",
+        claimHash
+          ? "No beneficiary found with this claim hash."
+          : "No beneficiary found with this claim code."
+      );
+    }
+
     const beneficiary = beneficiarySnapshot.docs[0].data();
- 
+
+    // If we looked up by claimCode, resolve the hash now for on-chain verification
+    if (!claimHash) {
+      claimHash = beneficiary.claimHash;
+    }
+
     // Verify campaign is locked on-chain
     const contract = getCampaignReadContract(campaignAddress);
     const details = await contract.getCampaignDetails();
- 
+
     if (!details._beneficiariesLocked) {
       return buildError(
         res,
@@ -878,28 +1176,28 @@ app.post("/api/claims/verify-qr", verifyPartner, async (req, res) => {
         "Beneficiaries are not locked on-chain yet."
       );
     }
- 
+
     // Verify claim is valid on-chain
     const HOPE_CAMPAIGN_CLAIM_ABI = [
       "function verifyClaimHash(bytes32 _claimHash) view returns (bool isValid, bool hasBeenClaimed)",
     ];
- 
+
     const claimContract = new ethers.Contract(
       campaignAddress,
       HOPE_CAMPAIGN_CLAIM_ABI,
       new ethers.JsonRpcProvider(HARDHAT_RPC_URL)
     );
- 
+
     const { isValid, hasBeenClaimed } = await claimContract.verifyClaimHash(claimHash);
- 
+
     if (!isValid) {
-      return buildError(res, 400, "invalid-claim-hash", "Claim hash is not registered.");
+      return buildError(res, 400, "invalid-claim-hash", "Claim hash is not registered on-chain.");
     }
- 
+
     if (hasBeenClaimed) {
       return buildError(res, 400, "already-claimed", "This beneficiary has already claimed.");
     }
- 
+
     // Return beneficiary details for partner verification
     return res.status(200).json({
       success: true,
@@ -932,58 +1230,104 @@ app.post("/api/claims/verify-qr", verifyPartner, async (req, res) => {
 app.post("/api/claims/process", verifyPartner, async (req, res) => {
   try {
     const { campaignAddress, claimHash, txHash } = req.body || {};
- 
+
     if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
       return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
     }
- 
+
     if (!claimHash || !claimHash.startsWith("0x")) {
       return buildError(res, 400, "invalid-claim-hash", "Valid claimHash is required.");
     }
- 
+
     if (!txHash || !txHash.startsWith("0x")) {
       return buildError(res, 400, "invalid-tx-hash", "Valid blockchain transaction hash is required.");
     }
- 
+
     const campaignDoc = await getCampaignDocByAddress(campaignAddress);
- 
+
     if (!campaignDoc) {
       return buildError(res, 404, "campaign-not-found", "Campaign not found.");
     }
- 
+
     if (campaignDoc.data.partnerUid !== req.partnerUid) {
       return buildError(res, 403, "campaign-not-owned", "You do not own this campaign.");
     }
- 
-    // Verify transaction succeeded on-chain
+
     const receipt = await verifyTransactionReceipt(txHash, campaignAddress);
- 
-    // Verify claim in Firestore
+
+    console.log("Claim tx:", txHash);
+    console.log("API claimHash:", claimHash);
+    console.log("Receipt logs:", receipt.logs.map((log) => ({
+      address: log.address,
+      topics: log.topics,
+      data: log.data,
+    })));
+
+    const iface = new ethers.Interface(HOPE_CAMPAIGN_READ_ABI);
+
+    let claimEventFound = false;
+    let claimedAmountFromEvent = null;
+
+    for (const log of receipt.logs) {
+      if (log.address.toLowerCase() !== campaignAddress.toLowerCase()) continue;
+
+      try {
+        const parsed = iface.parseLog(log);
+
+        if (parsed?.name === "FundsClaimed") {
+          const eventClaimHash = String(parsed.args[0]).toLowerCase();
+          const eventAmount = parsed.args[1];
+
+          if (eventClaimHash === claimHash.toLowerCase()) {
+            claimEventFound = true;
+            claimedAmountFromEvent = eventAmount;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!claimEventFound || claimedAmountFromEvent === null) {
+      return buildError(
+        res,
+        400,
+        "invalid-claim-transaction",
+        "Invalid claim transaction: FundsClaimed event not found for this claim hash."
+      );
+    }
+
     const beneficiarySnapshot = await getCampaignBeneficiaryCollection(campaignDoc.id)
       .where("claimHash", "==", claimHash)
       .limit(1)
       .get();
- 
+
     if (beneficiarySnapshot.empty) {
       return buildError(res, 404, "beneficiary-not-found", "Beneficiary not found.");
     }
- 
+
     const beneficiary = beneficiarySnapshot.docs[0];
     const beneficiaryData = beneficiary.data();
- 
-    // Get campaign details for receipt
+
     const contract = getCampaignReadContract(campaignAddress);
     const details = await contract.getCampaignDetails();
- 
-    const shareAmount = Number(details._raisedAmount) / Number(details._beneficiaryCount);
- 
-    // Update Firestore: mark claim as processed
+
+    const shareAmount = Number(claimedAmountFromEvent);
+
+    const partnerDoc = await db.collection("users").doc(req.partnerUid).get();
+    const partnerData = partnerDoc.exists ? partnerDoc.data() : {};
+
+    const organizationName =
+      partnerData.organizationName ||
+      req.partnerData?.organizationName ||
+      "Partner";
+
     const batch = db.batch();
- 
+
     batch.set(
       beneficiary.ref,
       {
         status: "claimed",
+        claimed: true,
         claimProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
         claimTxHash: txHash,
         claimAmount: shareAmount,
@@ -991,25 +1335,28 @@ app.post("/api/claims/process", verifyPartner, async (req, res) => {
       },
       { merge: true }
     );
- 
+
     await batch.commit();
- 
-    // Generate receipt data
+
     const receipt_data = {
       campaignAddress,
       campaignTitle: campaignDoc.data.title,
-      partnerName: req.partnerData?.organizationName || req.partnerData?.name || "Partner",
+      partnerName: organizationName,
+      organizationName,
       partnerWallet: details._partner,
+
       beneficiaryName: beneficiaryData.fullName,
       beneficiaryIdType: beneficiaryData.idType,
+      beneficiaryIdNumber: beneficiaryData.idNumber || beneficiaryData.normalizedIdNumber || "—",
+
       amount: shareAmount,
-      amountFormatted: (shareAmount / 1e6).toFixed(2), // USDC has 6 decimals
+      amountFormatted: (shareAmount / 1e6).toFixed(2),
       releaseDate: new Date().toISOString().split("T")[0],
       claimHash,
       claimCode: beneficiaryData.claimCode,
       txHash,
     };
- 
+
     return res.status(200).json({
       success: true,
       receipt: receipt_data,
@@ -1377,6 +1724,8 @@ app.post("/api/beneficiaries/commit-lock", verifyPartner, async (req, res) => {
 
     await campaignDoc.ref.update({
       beneficiariesLocked: true,
+      donationsOpen: true,
+      status: "active",
       beneficiariesLockedAt: admin.firestore.FieldValue.serverTimestamp(),
       beneficiaryLockTxHash: txHash,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -1718,6 +2067,73 @@ app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
+// Campaign-specific
+app.get("/api/activity/campaign/:campaignAddress", async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+    if (!campaignDoc) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const campaign = {
+      campaignAddress,
+      title: campaignDoc.data.title,
+    };
+
+    const activities = await getActivitiesForCampaign(campaign);
+
+    return res.json({ success: true, activities });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch activity" });
+  }
+});
+
+// Partner-specific
+app.get("/api/activity/partner", verifyPartner, async (req, res) => {
+  try {
+    const snap = await db
+      .collection("campaigns")
+      .where("partnerUid", "==", req.partnerUid)
+      .get();
+
+    const campaigns = snap.docs.map((d) => d.data());
+
+    const groups = await Promise.all(
+      campaigns.map((c) => getActivitiesForCampaign(c))
+    );
+
+    const merged = groups.flat().sort((a, b) => b.blockNumber - a.blockNumber);
+
+    return res.json({ success: true, activities: merged });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch partner activity" });
+  }
+});
+
+// Platform-wide
+app.get("/api/activity/platform", verifyAdmin, async (req, res) => {
+  try {
+    const snap = await db.collection("campaigns").get();
+
+    const campaigns = snap.docs.map((d) => d.data());
+
+    const groups = await Promise.all(
+      campaigns.map((c) => getActivitiesForCampaign(c))
+    );
+
+    const merged = groups.flat().sort((a, b) => b.blockNumber - a.blockNumber);
+
+    return res.json({ success: true, activities: merged });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to fetch platform activity" });
+  }
+});
+
 app.get("/env-check", (req, res) => {
   res.json({
     cloudinary: process.env.CLOUDINARY_CLOUD_NAME,
@@ -1785,6 +2201,161 @@ function generateTemporaryPassword() {
 
   return [...required, ...random].sort(() => Math.random() - 0.5).join("");
 }
+
+// ─── POST /api/campaigns/:campaignAddress/hold ───────────────────────────────
+// Admin endpoint to hold/pause a campaign - stops donations and beneficiary registration
+app.post("/api/campaigns/:campaignAddress/hold", verifyAdmin, async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.status !== "active") {
+      return buildError(
+        res,
+        400,
+        "campaign-not-active",
+        "Only active campaigns can be held."
+      );
+    }
+
+    // Call smart contract to pause campaign
+    const provider = new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+    // Get admin signer from environment (would need to be set up for production)
+    // For now, use a read-only approach and trust Firestore status
+    
+    // Update Firestore campaign status to on_hold
+    await campaignDoc.ref.update({
+      status: "on_hold",
+      heldAt: admin.firestore.FieldValue.serverTimestamp(),
+      heldBy: req.adminUid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Campaign has been put on hold. Donations and beneficiary registration are paused.",
+      campaign: {
+        address: campaignAddress,
+        status: "on_hold",
+      },
+    });
+  } catch (error) {
+    console.error("Hold campaign failed:", error);
+    return buildError(
+      res,
+      500,
+      "hold-campaign-failed",
+      error?.message || "Failed to hold campaign."
+    );
+  }
+});
+
+// ─── POST /api/campaigns/:campaignAddress/unhold ─────────────────────────────
+// Admin endpoint to resume a held campaign
+app.post("/api/campaigns/:campaignAddress/unhold", verifyAdmin, async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    if (campaignDoc.data.status !== "on_hold") {
+      return buildError(
+        res,
+        400,
+        "campaign-not-held",
+        "Only held campaigns can be resumed."
+      );
+    }
+
+    // Update Firestore campaign status back to active
+    await campaignDoc.ref.update({
+      status: "active",
+      uneldAt: admin.firestore.FieldValue.serverTimestamp(),
+      uneldBy: req.adminUid,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Campaign has been resumed. Donations and beneficiary registration are active.",
+      campaign: {
+        address: campaignAddress,
+        status: "active",
+      },
+    });
+  } catch (error) {
+    console.error("Unhold campaign failed:", error);
+    return buildError(
+      res,
+      500,
+      "unhold-campaign-failed",
+      error?.message || "Failed to resume campaign."
+    );
+  }
+});
+
+// ─── GET /api/admin/campaigns/:campaignAddress ─────────────────────────────
+// Admin-only: fetch a campaign doc + its beneficiaries using Admin SDK.
+// This avoids client-side Firestore rules blocking beneficiary reads.
+app.get("/api/admin/campaigns/:campaignAddress", verifyAdmin, async (req, res) => {
+  try {
+    const { campaignAddress } = req.params;
+
+    if (!campaignAddress || !ethers.isAddress(campaignAddress)) {
+      return buildError(res, 400, "invalid-campaign", "Valid campaignAddress is required.");
+    }
+
+    const campaignDoc = await getCampaignDocByAddress(campaignAddress);
+
+    if (!campaignDoc) {
+      return buildError(res, 404, "campaign-not-found", "Campaign not found.");
+    }
+
+    const snapshot = await getCampaignBeneficiaryCollection(campaignDoc.id).get();
+
+    const beneficiaries = snapshot.docs
+      .map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+    return res.status(200).json({
+      success: true,
+      campaign: {
+        id: campaignDoc.id,
+        campaignAddress,
+        ...campaignDoc.data,
+      },
+      beneficiaries,
+    });
+  } catch (error) {
+    console.error("Admin fetch campaign detail failed:", error);
+    return buildError(
+      res,
+      500,
+      "admin-fetch-campaign-failed",
+      error?.message || "Failed to fetch campaign detail."
+    );
+  }
+});
 
 // ─── Start Server ────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;

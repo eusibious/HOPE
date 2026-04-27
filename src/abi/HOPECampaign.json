@@ -1,5 +1,5 @@
 {
-  "abi": [
+    "abi": [
     {
       "inputs": [
         {
@@ -72,6 +72,25 @@
         },
         {
           "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "BeneficiariesLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "count",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
           "internalType": "string",
           "name": "ipfsCID",
           "type": "string"
@@ -92,13 +111,38 @@
         {
           "indexed": false,
           "internalType": "uint256",
+          "name": "count",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "ipfsCID",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "BeneficiariesRegisteredAndLocked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
           "name": "totalRaised",
           "type": "uint256"
         },
         {
           "indexed": false,
           "internalType": "uint256",
-          "name": "totalClaimed",
+          "name": "claimedCount",
           "type": "uint256"
         },
         {
@@ -109,6 +153,44 @@
         }
       ],
       "name": "CampaignClosed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "CampaignPaused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "CampaignUnpaused",
       "type": "event"
     },
     {
@@ -141,6 +223,25 @@
       "inputs": [
         {
           "indexed": true,
+          "internalType": "address",
+          "name": "partner",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "DonationsOpened",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
           "internalType": "bytes32",
           "name": "claimHash",
           "type": "bytes32"
@@ -149,6 +250,18 @@
           "indexed": false,
           "internalType": "uint256",
           "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "claimedCount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "claimedAmount",
           "type": "uint256"
         },
         {
@@ -253,6 +366,19 @@
     },
     {
       "inputs": [],
+      "name": "claimedAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "claimedCount",
       "outputs": [
         {
@@ -344,6 +470,19 @@
     },
     {
       "inputs": [],
+      "name": "donationsOpen",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "factory",
       "outputs": [
         {
@@ -399,6 +538,16 @@
         },
         {
           "internalType": "uint256",
+          "name": "_claimedAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_remainingAmount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
           "name": "_deadline",
           "type": "uint256"
         },
@@ -419,7 +568,17 @@
         },
         {
           "internalType": "bool",
+          "name": "_isPaused",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
           "name": "_beneficiariesLocked",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "_donationsOpen",
           "type": "bool"
         },
         {
@@ -472,6 +631,19 @@
     },
     {
       "inputs": [],
+      "name": "isPaused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "location",
       "outputs": [
         {
@@ -485,13 +657,6 @@
     },
     {
       "inputs": [],
-      "name": "lockBeneficiaries",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
       "name": "partner",
       "outputs": [
         {
@@ -501,6 +666,13 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pauseCampaign",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {
@@ -534,7 +706,7 @@
           "type": "uint256"
         }
       ],
-      "name": "registerBeneficiaries",
+      "name": "registerLockAndOpenDonations",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -550,6 +722,13 @@
         }
       ],
       "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpauseCampaign",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     },
     {

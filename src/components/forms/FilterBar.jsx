@@ -11,25 +11,25 @@ function FilterBar({
   totalCount = 0
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="mb-4 text-sm font-semibold text-slate-900">Filters</h3>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* Search Input */}
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+          <label className="mb-1 block text-xs font-medium text-slate-500">
             Search
           </label>
           <SearchBar
             placeholder={searchPlaceholder} 
             onChange={onSearchChange}
             value={searchValue}
+            variant="light"
           />
         </div>
 
         {/* Dynamic Filters */}
         {filters.map((filter, index) => (
           <div key={index}>
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">
+            <label className="mb-1 block text-xs font-medium text-slate-500">
               {filter.label}
             </label>
             <Select
@@ -44,13 +44,12 @@ function FilterBar({
 
       {/* Results Counter */}
       {showResults && (
-        <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-4">
-          <div className="text-sm text-slate-600">
-            Showing <span className="font-semibold">{resultsCount}</span> of{' '}
-            <span className="font-semibold">{totalCount}</span> results
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
+          <div>
+            {resultsCount} / {totalCount} results
           </div>
           {resultsCount !== totalCount && (
-            <div className="text-xs text-slate-500">
+            <div>
               Filters applied
             </div>
           )}

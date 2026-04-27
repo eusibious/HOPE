@@ -87,6 +87,49 @@ export const signOutUser = async () => {
   }
 };
 
+// ─── Re-authenticate User ───────────────────────────────────────────────────
+// Used for sensitive operations like campaign closure
+export const reauthenticateWithPassword = async (password) => {
+  try {
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      return {
+        success: false,
+        error: "No user currently authenticated.",
+      };
+    }
+
+    const { EmailAuthProvider, reauthenticateWithCredential } = await import(
+      "firebase/auth"
+    );
+    const credential = EmailAuthProvider.credential(user.email, password);
+    await reauthenticateWithCredential(user, credential);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Re-authentication error:", error)
+
+    if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password") {
+      return {
+        success: false,
+        message: "Incorrect password. Please try again.",
+      }
+    }
+
+    if (error.code === "auth/too-many-requests") {
+      return {
+        success: false,
+        message: "Too many failed attempts. Try again later.",
+      }
+    }
+
+    return {
+      success: false,
+      message: "Password verification failed. Please try again.",
+    }
+  }
+};
+
 // ─── Auth State Observer ─────────────────────────────────────────────────────
 export const onAuthStateChange = (callback) => {
   return onAuthStateChanged(auth, callback);

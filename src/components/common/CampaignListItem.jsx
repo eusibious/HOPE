@@ -10,6 +10,7 @@ function CampaignListItem({
   status = 'active',
   campaignAddress,
   imageUrl,
+  donationsOpen = false,
 }) {
   const navigate = useNavigate()
 
@@ -23,8 +24,8 @@ function CampaignListItem({
   }
 
   return (
-    <article className="flex flex-col rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md overflow-hidden">
-      <div className="h-40 w-full bg-slate-100 overflow-hidden">
+    <article className="flex flex-col rounded-xl border border-[#1E2D42] bg-[#111827] shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg hover:border-[#2D4A6F] overflow-hidden">
+      <div className="h-40 w-full bg-[#1E2D42] overflow-hidden">
         {imageUrl ? (
           <img
             src={imageUrl}
@@ -32,7 +33,7 @@ function CampaignListItem({
             className="w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
+          <div className="w-full h-full flex items-center justify-center text-[#2D4A6F]">
             <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
@@ -49,45 +50,57 @@ function CampaignListItem({
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-base font-semibold text-slate-900 line-clamp-2">{title}</h3>
-              <span
-                className={`px-2 py-1 text-xs font-medium rounded-full ${
-                  status === 'active'
-                    ? 'bg-green-100 text-green-800'
-                    : status === 'closed' || status === 'completed'
-                    ? 'bg-gray-100 text-gray-800'
-                    : 'bg-blue-100 text-blue-800'
-                }`}
-              >
-                {status || 'active'}
-              </span>
+              <h3 className="text-base font-semibold text-[#E8EDF5] line-clamp-2">{title}</h3>
+              <div className="flex items-center gap-1 flex-wrap">
+                <span
+                  className={`px-2 py-1 text-xs font-medium rounded-full whitespace-nowrap ${
+                    status === 'active'
+                      ? 'bg-[#4FC3A1]/15 text-[#4FC3A1]'
+                      : status === 'closed' || status === 'completed'
+                      ? 'bg-[#6B8CAE]/15 text-[#6B8CAE]'
+                      : 'bg-[#6B8CAE]/15 text-[#6B8CAE]'
+                  }`}
+                >
+                  {status || 'active'}
+                </span>
+                {status === 'active' && !donationsOpen && (
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-amber-500/15 text-amber-400 whitespace-nowrap">
+                    Donations closed
+                  </span>
+                )}
+                {status === 'active' && donationsOpen && (
+                  <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-500/15 text-green-400 whitespace-nowrap">
+                    Accepting donations
+                  </span>
+                )}
+              </div>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{location}</p>
+            <p className="mt-1 text-xs text-[#6B8CAE]">{location}</p>
           </div>
           <VerifiedBadge />
         </div>
 
         <div className="mt-4 space-y-2">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-slate-900">
+            <span className="font-semibold text-[#E8EDF5]">
               ${raisedAmount.toLocaleString()}
             </span>
-            <span className="text-slate-500">
+            <span className="text-[#6B8CAE]">
               ${goalAmount.toLocaleString()}
             </span>
           </div>
 
-          <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div className="h-2 w-full rounded-full bg-[#1E2D42] overflow-hidden">
             <div
-              className="h-full rounded-full bg-[#0EA5E9] transition-all"
+              className="h-full rounded-full bg-[#4FC3A1] transition-all"
               style={{ width: `${progress}%` }}
             />
           </div>
 
-          <p className="text-xs text-slate-600">{progress}% funded</p>
+          <p className="text-xs text-[#6B8CAE]">{progress}% funded</p>
         </div>
 
-        <Button variant="ghost" className="mt-4 w-full" onClick={handleViewCampaign}>
+        <Button variant="ghost" className="mt-4 w-full text-[#4FC3A1] hover:text-[#E8EDF5] hover:bg-[#1E2D42]" onClick={handleViewCampaign}>
           View campaign
         </Button>
       </div>

@@ -11,47 +11,49 @@ const initialState = {
   campaignFilters: { search: '', partner: '', status: '' },
   partners: [],
   partnerFilters: { search: '', status: '' },
-  loading: { campaigns: false, partners: false },
+  loading: true,
+  error: null,
   stats: {
     campaigns: { active: 0, pending: 0, completed: 0, blocked: 0 },
     partners: { pending: 0, reviewing: 0, approved: 0, rejected: 0 },
   },
-}
+};
 
 const ACTIONS = {
-  SET_LOADING:            'SET_LOADING',
-  SET_CAMPAIGNS:          'SET_CAMPAIGNS',
-  SET_PARTNERS:           'SET_PARTNERS',
+  SET_LOADING: 'SET_LOADING',
+  SET_DATA: 'SET_DATA',
+  SET_ERROR: 'SET_ERROR',
   UPDATE_CAMPAIGN_FILTERS:'UPDATE_CAMPAIGN_FILTERS',
   UPDATE_CAMPAIGN_STATUS: 'UPDATE_CAMPAIGN_STATUS',
   UPDATE_PARTNER_FILTERS: 'UPDATE_PARTNER_FILTERS',
   UPDATE_PARTNER_STATUS:  'UPDATE_PARTNER_STATUS',
-}
+};
 
 function adminReducer(state, action) {
   switch (action.type) {
     case ACTIONS.SET_LOADING:
-      return { ...state, loading: { ...state.loading, [action.target]: action.value } }
+      return { ...state, loading: action.value, error: null };
 
-    case ACTIONS.SET_CAMPAIGNS:
+    case ACTIONS.SET_DATA:
       return {
         ...state,
-        campaigns: action.campaigns,
-        stats: { ...state.stats, campaigns: calculateCampaignStats(action.campaigns) },
-      }
+        campaigns: action.payload.campaigns || state.campaigns,
+        partners: action.payload.partners || state.partners,
+        stats: {
+          campaigns: calculateCampaignStats(action.payload.campaigns || state.campaigns),
+          partners: calculatePartnerStats(action.payload.partners || state.partners),
+        },
+        loading: false,
+      };
 
-    case ACTIONS.SET_PARTNERS:
-      return {
-        ...state,
-        partners: action.partners,
-        stats: { ...state.stats, partners: calculatePartnerStats(action.partners) },
-      }
+    case ACTIONS.SET_ERROR:
+      return { ...state, loading: false, error: action.error };
 
     case ACTIONS.UPDATE_CAMPAIGN_FILTERS:
-      return { ...state, campaignFilters: { ...state.campaignFilters, ...action.filters } }
+      return { ...state, campaignFilters: { ...state.campaignFilters, ...action.filters } };
 
     case ACTIONS.UPDATE_PARTNER_FILTERS:
-      return { ...state, partnerFilters: { ...state.partnerFilters, ...action.filters } }
+      return { ...state, partnerFilters: { ...state.partnerFilters, ...action.filters } };
 
     case ACTIONS.UPDATE_CAMPAIGN_STATUS:
       return {
@@ -67,7 +69,7 @@ function adminReducer(state, action) {
             )
           ),
         },
-      }
+      };
 
     case ACTIONS.UPDATE_PARTNER_STATUS:
       return {
@@ -83,12 +85,13 @@ function adminReducer(state, action) {
             )
           ),
         },
-      }
+      };
 
     default:
-      return state
+      return state;
   }
 }
+
 
 function calculateCampaignStats(campaigns) {
   return campaigns.reduce(
@@ -117,53 +120,116 @@ export function AdminProvider({ children }) {
   // Uses onSnapshot so the admin panel updates instantly when a new
   // partner submits a request — no need to refresh the page
   useEffect(() => {
-    if (authLoading || !isAdmin) return
+    if (authLoading || !isAdmin) return;
 
-    dispatch({ type: ACTIONS.SET_LOADING, target: 'partners', value: true })
+    dispatch({ type: ACTIONS.SET_LOADING, value: true });
 
-    const unsubscribe = onSnapshot(
+    const partnersUnsubscribe = onSnapshot(
       collection(db, 'partner-requests'),
       (snapshot) => {
-        const partners = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
-        dispatch({ type: ACTIONS.SET_PARTNERS, partners })
-        dispatch({ type: ACTIONS.SET_LOADING, target: 'partners', value: false })
+        const partners = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        dispatch({ type: ACTIONS.SET_DATA, payload: { partners } });
       },
       (error) => {
-        console.error('Error listening to partner requests:', error)
-        dispatch({ type: ACTIONS.SET_LOADING, target: 'partners', value: false })
+        console.error('Error listening to partner requests:', error);
+        dispatch({ type: ACTIONS.SET_ERROR, error: 'Failed to load partners.' });
       }
-    )
+    );
 
-    return () => unsubscribe()
-  }, [isAdmin, authLoading])
+    const campaignsUnsubscribe = onSnapshot(
+      collection(db, 'campaigns'),
+      (snapshot) => {
+        const campaigns = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        dispatch({ type: ACTIONS.SET_DATA, payload: { campaigns } });
+      },
+      (error) => {
+        console.error('Error listening to campaigns:', error);
+        dispatch({ type: ACTIONS.SET_ERROR, error: 'Failed to load campaigns.' });
+      }
+    );
 
-  // ── Load campaigns ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (authLoading || !isAdmin) return
+    return () => {
+      partnersUnsubscribe();
+      campaignsUnsubscribe();
+    };
+  }, [isAdmin, authLoading]);
 
-    dispatch({ type: ACTIONS.SET_LOADING, target: 'campaigns', value: true })
-    try {
-      // TODO: implement when campaigns collection is ready
-      dispatch({ type: ACTIONS.SET_CAMPAIGNS, campaigns: [] })
-    } catch (error) {
-      console.error('Error loading campaigns:', error)
-      dispatch({ type: ACTIONS.SET_CAMPAIGNS, campaigns: [] })
-    } finally {
-      dispatch({ type: ACTIONS.SET_LOADING, target: 'campaigns', value: false })
-    }
-  }, [isAdmin, authLoading])
 
   const actions = {
     updateCampaignFilters: (filters) => {
       dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_FILTERS, filters })
     },
 
-    blockCampaign: (campaignId) => {
-      dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_STATUS, campaignId, status: 'blocked' })
+    blockCampaign: async (campaignId) => {
+      try {
+        // Find campaign to get address
+        const campaign = state.campaigns.find(c => c.id === campaignId)
+        if (!campaign) throw new Error('Campaign not found')
+
+        const currentUser = getAuth().currentUser
+        if (!currentUser) throw new Error('Not authenticated')
+
+        const idToken = await currentUser.getIdToken()
+
+        const response = await fetch(
+          `${BACKEND_URL}/api/campaigns/${campaign.campaignAddress}/hold`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+          }
+        )
+
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.message || 'Failed to hold campaign')
+
+        // Update local state
+        dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_STATUS, campaignId, status: 'on_hold' })
+        return { success: true }
+      } catch (error) {
+        console.error('Error holding campaign:', error)
+        throw error
+      }
     },
 
-    unblockCampaign: (campaignId) => {
-      dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_STATUS, campaignId, status: 'active' })
+    unblockCampaign: async (campaignId) => {
+      try {
+        // Find campaign to get address
+        const campaign = state.campaigns.find(c => c.id === campaignId)
+        if (!campaign) throw new Error('Campaign not found')
+
+        const currentUser = getAuth().currentUser
+        if (!currentUser) throw new Error('Not authenticated')
+
+        const idToken = await currentUser.getIdToken()
+
+        const response = await fetch(
+          `${BACKEND_URL}/api/campaigns/${campaign.campaignAddress}/unhold`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+          }
+        )
+
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.message || 'Failed to resume campaign')
+
+        // Update local state
+        dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_STATUS, campaignId, status: 'active' })
+        return { success: true }
+      } catch (error) {
+        console.error('Error resuming campaign:', error)
+        throw error
+      }
+    },
+
+    approveCampaignClosure: (campaignId) => {
+      dispatch({ type: ACTIONS.UPDATE_CAMPAIGN_STATUS, campaignId, status: 'closed' })
     },
 
     updatePartnerFilters: (filters) => {

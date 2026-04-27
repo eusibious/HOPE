@@ -81,6 +81,7 @@ function PartnerBeneficiaries() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copiedValue, setCopiedValue] = useState("");
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -272,9 +273,9 @@ function PartnerBeneficiaries() {
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Status
                       </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {/* <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Claim
-                      </th>
+                      </th> */}
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Record Trail
                       </th>
@@ -289,12 +290,18 @@ function PartnerBeneficiaries() {
                       <tr key={b.id} className="align-top">
                         <td className="px-5 py-4">
                           <div className="flex items-start gap-3">
-                            {b.photoUrl ? (
-                              <img
-                                src={b.photoUrl}
-                                alt={b.fullName || "Beneficiary"}
-                                className="h-12 w-12 rounded-lg object-cover border border-slate-200"
-                              />
+                            {b.photoUrls?.selfie ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPhoto(b.photoUrls.selfie)}
+                                className="h-12 w-12 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                              >
+                                <img
+                                  src={b.photoUrls.selfie}
+                                  alt={b.fullName || "Beneficiary"}
+                                  className="h-full w-full object-cover transition-transform hover:scale-105"
+                                />
+                              </button>
                             ) : (
                               <div className="h-12 w-12 rounded-lg border border-slate-200 bg-slate-100" />
                             )}
@@ -331,7 +338,7 @@ function PartnerBeneficiaries() {
                           </div>
                         </td>
 
-                        <td className="px-5 py-4">
+                        {/* <td className="px-5 py-4">
                           <div className="space-y-2">
                             <div className="flex items-start gap-2">
                               <span className="font-mono text-xs text-slate-700 break-all">
@@ -358,7 +365,7 @@ function PartnerBeneficiaries() {
                               </div>
                             )}
                           </div>
-                        </td>
+                        </td> */}
 
                         <td className="px-5 py-4 text-sm text-slate-700">
                           <div className="space-y-1">
@@ -367,7 +374,15 @@ function PartnerBeneficiaries() {
                             </div>
                             <div className="font-mono text-xs break-all">
                               {b.beneficiaryCID ? truncateMiddle(b.beneficiaryCID, 12, 8) : "—"}
+                              <button
+                              type="button"
+                              onClick={() => handleCopy(b.beneficiaryCID)}
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                            >
+                              {copiedValue === b.beneficiaryCID ? "Copied" : "Copy"}
+                            </button>
                             </div>
+                            
 
                             <div className="mt-2 text-xs text-slate-500">
                               Manifest CID:
@@ -378,7 +393,15 @@ function PartnerBeneficiaries() {
                                 : b.manifestCID
                                 ? truncateMiddle(b.manifestCID, 12, 8)
                                 : "—"}
+                              <button
+                              type="button"
+                              onClick={() => handleCopy(b.manifestCID)}
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                            >
+                              {copiedValue === b.manifestCID ? "Copied" : "Copy"}
+                            </button>
                             </div>
+                            
                           </div>
                         </td>
 
@@ -410,6 +433,31 @@ function PartnerBeneficiaries() {
             </div>
           )}
         </>
+      )}
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div
+            className="relative max-h-[90vh] max-w-3xl rounded-2xl bg-white p-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute -right-3 -top-3 rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700 shadow"
+            >
+              ×
+            </button>
+
+            <img
+              src={selectedPhoto}
+              alt="Beneficiary"
+              className="max-h-[80vh] max-w-full rounded-xl object-contain"
+            />
+          </div>
+        </div>
       )}
     </div>
   );

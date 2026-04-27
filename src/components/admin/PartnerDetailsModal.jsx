@@ -15,7 +15,6 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
     status: partner.status || 'unknown',
     submittedDate: partner.submittedDate || 'N/A',
     reviewedAt: partner.reviewedAt || null,
-    reviewedBy: partner.reviewedBy || null,
     accountCreated: partner.accountCreated || false,
     accountCreatedAt: partner.accountCreatedAt || null,
     accountCreationError: partner.accountCreationError || null,
@@ -100,14 +99,10 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
               </div>
             </div>
             {partnerData.reviewedAt && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Reviewed Date</label>
                   <p className="mt-1 text-sm text-slate-700">{formatTimestamp(partnerData.reviewedAt)}</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Reviewed By</label>
-                  <p className="mt-1 text-sm text-slate-700">{partnerData.reviewedBy}</p>
                 </div>
               </div>
             )}
@@ -164,14 +159,10 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
         <div>
           <h4 className="text-sm font-semibold text-slate-900 mb-3">System Information</h4>
           <div className="bg-slate-50 rounded-lg p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Partner ID</label>
                 <p className="mt-1 text-sm font-mono text-slate-700">{partnerData.id}</p>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Registration Type</label>
-                <p className="mt-1 text-sm text-slate-700">Humanitarian Partner</p>
               </div>
             </div>
           </div>

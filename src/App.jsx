@@ -3,7 +3,6 @@ import './App.css'
 import { AuthProvider } from './contexts/AuthContext'
 import { AdminProvider } from './contexts/AdminContext'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import Navbar from './components/Navbar'
 import AdminLayout from './components/admin/AdminLayout'
 import PartnerLayout from './components/partner/PartnerLayout'
 import AdminRoute from './components/admin/AdminRoute'
@@ -13,14 +12,17 @@ import CampaignList from './pages/public/CampaignList'
 import CampaignDetail from './pages/public/CampaignDetail'
 import DonatePage from './pages/public/DonatePage'
 import About from './pages/public/About'
-import Login from './pages/auth/Login'
+import Blog from './pages/public/Blog'
+import HowItWorks from './pages/public/HowItWorks'
+import Privacy from './pages/public/Privacy'
+import Terms from './pages/public/Terms'
 import AdminLogin from './pages/auth/AdminLogin'
 import PartnerLogin from './pages/auth/PartnerLogin'
 import { Footer } from './components/common'
-import AdminOverview from './pages/admin/AdminOverview'
-import AdminPartnerRequests from './pages/admin/AdminPartnerRequests'
-import AdminCampaignMonitor from './pages/admin/AdminCampaignMonitor'
-import AdminCampaignDetail from './pages/admin/AdminCampaignDetail'
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminPartners from './pages/admin/AdminPartners';
+import AdminCampaigns from './pages/admin/AdminCampaigns';
+import AdminCampaignDetail from './pages/admin/AdminCampaignDetail';
 import PartnerRegistration from './pages/partner/PartnerRegistration'
 import PartnerDashboard from './pages/partner/PartnerDashboard'
 import PartnerCampaigns from './pages/partner/PartnerCampaigns'
@@ -47,35 +49,15 @@ function App() {
             </a>
             
             <Routes>
-              {/* Admin Routes - No Navbar */}
-              <Route path="/admin" element={
-                <AdminRoute>
-                  <AdminLayout>
-                    <AdminOverview />
-                  </AdminLayout>
-                </AdminRoute>
-              } />
-              <Route path="/admin/partners" element={
-                <AdminRoute>
-                  <AdminLayout>
-                    <AdminPartnerRequests />
-                  </AdminLayout>
-                </AdminRoute>
-              } />
-              <Route path="/admin/campaigns" element={
-                <AdminRoute>
-                  <AdminLayout>
-                    <AdminCampaignMonitor />
-                  </AdminLayout>
-                </AdminRoute>
-              } />
-              <Route path="/admin/campaigns/:id" element={
-                <AdminRoute>
-                  <AdminLayout>
-                    <AdminCampaignDetail />
-                  </AdminLayout>
-                </AdminRoute>
-              } />
+              {/* Admin Routes */}
+              <Route element={<AdminRoute />}>
+                <Route element={<AdminLayout />}>
+                  <Route path="/admin" element={<AdminDashboard />} />
+                  <Route path="/admin/partners" element={<AdminPartners />} />
+                  <Route path="/admin/campaigns" element={<AdminCampaigns />} />
+                  <Route path="/admin/campaigns/:campaignAddress" element={<AdminCampaignDetail />} />
+                </Route>
+              </Route>
 
               {/* Partner Routes - No Navbar */}
               <Route path="/partner" element={
@@ -160,21 +142,23 @@ function App() {
               } />
 
               {/* Login Routes - No Navbar or Footer */}
-              <Route path="/login" element={<Login />} />
               <Route path="/admin/login" element={<AdminLogin />} />
               <Route path="/partner/login" element={<PartnerLogin />} />
 
-              {/* Public Routes - With Navbar */}
+              {/* Public Routes - Without Navbar */}
               <Route path="/*" element={
                 <>
-                  <Navbar />
-                  <main id="main-content" className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+                  <main id="main-content">
                     <Routes>
                       <Route path="/" element={<Home />} />
                       <Route path="/campaigns" element={<CampaignList />} />
                       <Route path="/campaigns/:address" element={<CampaignDetail />} />
                       <Route path="/donate/:address" element={<DonatePage />} />
                       <Route path="/about" element={<About />} />
+                      <Route path="/blog" element={<Blog />} />
+                      <Route path="/how-it-works" element={<HowItWorks />} />
+                      <Route path="/privacy" element={<Privacy />} />
+                      <Route path="/terms" element={<Terms />} />
                       <Route path="/partner-register" element={<PartnerRegistration />} />
                       <Route path="/logout" element={<Logout />} />
                     </Routes>

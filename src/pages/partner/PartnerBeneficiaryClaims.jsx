@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import jsQR from "jsqr";
 import { useNavigate, useParams } from "react-router-dom";
 import { ethers } from "ethers";
 import { db } from "../../lib/firebase";
+import { collection, where, query, limit, getDocs } from "firebase/firestore";
 import { useAuth } from "../../contexts/AuthContext";
 import HOPECampaignABI from "../../abi/HOPECampaign.json";
 import ClaimReceiptPDF from "../../components/partner/ClaimReceiptPDF";
@@ -22,6 +24,8 @@ function PartnerBeneficiaryClaims() {
   const videoRef = useRef(null);
   const fileInputRef = useRef(null);
   const streamRef = useRef(null);
+  const canvasRef = useRef(null);
+  const scanLoopRef = useRef(null);
 
   // Campaign and chain state
   const [campaign, setCampaign] = useState(null);
@@ -49,17 +53,73 @@ function PartnerBeneficiaryClaims() {
   // UI state
   const [pageLoading, setPageLoading] = useState(true);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [autoVerify, setAutoVerify] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
+    // Cancel the QR scan loop
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current);
+      scanLoopRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     setCameraOpen(false);
-  };
+  }, []);
+
+  const extractClaimCode = (value) => {
+    const raw = String(value || "").trim()
+
+    if (!raw) return ""
+
+    // QR format: HOPE|campaignAddress|claimHash|claimCode
+    if (raw.includes("|")) {
+      const parts = raw.split("|")
+      if (parts.length >= 4 && parts[0] === "HOPE") {
+        return parts[3]?.trim() || ""
+      }
+    }
+
+    return raw
+  }
+
+  // QR decode loop — runs every animation frame while camera is open
+  const startScanLoop = useCallback(() => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+
+    if (!canvas || !video || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      scanLoopRef.current = requestAnimationFrame(startScanLoop);
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: "dontInvert",
+    });
+
+    if (code?.data) {
+      stopCamera();
+
+      const extractedClaimCode = extractClaimCode(code.data);
+      setQrInput(extractedClaimCode);
+
+      setAutoVerify(true);
+      return;
+    }
+
+    scanLoopRef.current = requestAnimationFrame(startScanLoop);
+  }, [stopCamera]);
 
   const clearMessages = () => {
     setError("");
@@ -76,11 +136,12 @@ function PartnerBeneficiaryClaims() {
 
       try {
         // Get campaign from Firestore
-        const campaignSnapshot = await db
-          .collection("campaigns")
-          .where("campaignAddress", "==", campaignAddress)
-          .limit(1)
-          .get();
+        const q = query(
+          collection(db, "campaigns"),
+          where("campaignAddress", "==", campaignAddress),
+          limit(1)
+        );
+        const campaignSnapshot = await getDocs(q);
 
         if (campaignSnapshot.empty) {
           setError("Campaign not found.");
@@ -141,6 +202,31 @@ function PartnerBeneficiaryClaims() {
     return () => stopCamera();
   }, [user?.uid, campaignAddress]);
 
+  // Attach stream to video element when camera opens, then start QR scan loop
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current
+        .play()
+        .then(() => {
+          // Start decoding frames once video is playing
+          scanLoopRef.current = requestAnimationFrame(startScanLoop);
+        })
+        .catch((err) => {
+          console.error("Failed to play video:", err);
+        });
+    }
+  }, [cameraOpen, startScanLoop]);
+
+  // Auto-verify when a QR is detected by the camera
+  useEffect(() => {
+    if (autoVerify && qrInput) {
+      setAutoVerify(false);
+      verifyQRCode();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoVerify, qrInput]);
+
   // Start camera for QR scanning
   const startCamera = async () => {
     clearMessages();
@@ -177,28 +263,21 @@ function PartnerBeneficiaryClaims() {
   const verifyQRCode = async () => {
     clearMessages();
 
-    if (!qrInput.trim()) {
-      setError("Please enter or scan a QR code.");
+    const claimCode = extractClaimCode(qrInput);
+
+    if (!claimCode) {
+      setError("Please enter or scan a valid claim code.");
       return;
     }
 
-    // Extract claim hash from QR payload (format: HOPE|campaignAddr|claimHash|claimCode)
-    let claimHash = qrInput.trim();
-
-    if (qrInput.includes("|")) {
-      const parts = qrInput.split("|");
-      if (parts.length === 4) {
-        claimHash = parts[2]; // claimHash is the 3rd part
-      }
-    }
-
-    if (!claimHash.startsWith("0x")) {
-      setError("Invalid QR code or claim hash format.");
+    if (!/^[0-9a-fA-F]{8}$/.test(claimCode)) {
+      setError("Enter a valid 8-character claim code.");
       return;
     }
 
     try {
       setVerifyingQR(true);
+
       const idToken = await user.getIdToken();
 
       const response = await fetch(`${backendUrl}/api/claims/verify-qr`, {
@@ -209,7 +288,7 @@ function PartnerBeneficiaryClaims() {
         },
         body: JSON.stringify({
           campaignAddress,
-          claimHash,
+          claimCode: claimCode.toUpperCase(),
         }),
       });
 
@@ -268,6 +347,7 @@ function PartnerBeneficiaryClaims() {
       // Call claimFunds(claimHash) on blockchain
       const tx = await contract.claimFunds(scannedBeneficiary.claimHash);
       const receipt = await tx.wait();
+      
 
       const txHash = receipt.hash;
       setClaimTxHash(txHash);
@@ -297,6 +377,7 @@ function PartnerBeneficiaryClaims() {
       setClaimReceipt(claimData.receipt);
       setShowReceipt(true);
       setSuccess("Claim completed successfully!");
+      await refreshCampaignStats();
 
       // Reset form
       setTimeout(() => {
@@ -307,9 +388,42 @@ function PartnerBeneficiaryClaims() {
       }, 2000);
     } catch (err) {
       console.error("Claim approval failed:", err);
-      setError(err?.message || "Claim approval failed.");
+      setError( "Claim approval failed.");
     } finally {
       setApprovingClaim(false);
+    }
+  };
+
+  const refreshCampaignStats = async () => {
+    if (!backendUrl || !user || !campaignAddress) return;
+
+    const idToken = await user.getIdToken();
+
+    const statsResponse = await fetch(
+      `${backendUrl}/api/claims/campaign/${campaignAddress}`,
+      {
+        headers: { Authorization: `Bearer ${idToken}` },
+      }
+    );
+
+    if (statsResponse.ok) {
+      const statsData = await statsResponse.json();
+      setCampaignStats(statsData.campaign);
+    }
+
+    if (window.ethereum) {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const contract = new ethers.Contract(campaignAddress, HOPECampaignABI.abi, provider);
+      const details = await contract.getCampaignDetails();
+
+      setChainDetails((prev) => ({
+        ...(prev || {}),
+        claimedCount: Number(details._claimedCount),
+        beneficiaryCount: Number(details._beneficiaryCount),
+        raisedAmount: Number(details._raisedAmount),
+        isActive: details._isActive,
+        beneficiariesLocked: details._beneficiariesLocked,
+      }));
     }
   };
 
@@ -413,6 +527,8 @@ function PartnerBeneficiaryClaims() {
                       muted
                       className="w-full max-h-80 rounded-xl bg-black object-cover"
                     />
+                    {/* Hidden canvas used by jsQR to decode frames — not visible to user */}
+                    <canvas ref={canvasRef} className="hidden" />
                     <button
                       type="button"
                       onClick={stopCamera}
@@ -429,10 +545,15 @@ function PartnerBeneficiaryClaims() {
 
               {/* Manual Entry */}
               <div className="border border-slate-200 rounded-xl p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-slate-900">Manual Entry</h3>
+               <h3 className="text-sm font-semibold text-slate-900">Manual Entry</h3>
+
+                <p className="text-xs text-slate-500">
+                  Enter the 8-character claim code printed on the beneficiary card.
+                </p>
+
                 <input
                   type="text"
-                  placeholder="Paste QR payload or claim hash..."
+                  placeholder="Enter claim code, e.g. A3F2B19C"
                   value={qrInput}
                   onChange={handleQRInputChange}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm"
@@ -632,10 +753,6 @@ function PartnerBeneficiaryClaims() {
                 <p className="text-slate-600">
                   <span className="font-medium">Total Beneficiaries:</span>
                   <span className="ml-2 text-slate-900">{campaignStats.beneficiaryCount}</span>
-                </p>
-                <p className="text-slate-600">
-                  <span className="font-medium">Already Claimed:</span>
-                  <span className="ml-2 text-slate-900">{campaignStats.claimedCount}</span>
                 </p>
                 <p className="text-slate-600">
                   <span className="font-medium">Pending:</span>

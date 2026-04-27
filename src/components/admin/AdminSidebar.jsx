@@ -1,14 +1,15 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 const adminNavItems = [
-  { label: 'Overview', href: '/admin' },
-  { label: 'Partner Requests', href: '/admin/partners' },
-  { label: 'Campaign Monitor', href: '/admin/campaigns' },
-  { label: 'Logout', href: '/logout' },
-]
+  { label: 'Dashboard', href: '/admin' },
+  { label: 'Partners', href: '/admin/partners' },
+  { label: 'Campaigns', href: '/admin/campaigns' },
+];
 
 function AdminSidebar() {
-  const location = useLocation()
+  const location = useLocation();
+  const { logout } = useAuth();
 
   return (
     <aside className="fixed top-0 bottom-0 left-0 w-64 bg-white border-r border-slate-200 hidden lg:block z-30">
@@ -29,9 +30,7 @@ function AdminSidebar() {
         {/* Navigation */}
         <nav aria-label="Admin Navigation" className="flex-1 px-4 py-6 space-y-1">
           {adminNavItems.map((item) => {
-            const isActive = location.pathname === item.href || 
-              (item.href === '/admin' && location.pathname.startsWith('/admin') && location.pathname === '/admin')
-            const isLogout = item.label === 'Logout'
+            const isActive = location.pathname === item.href;
             
             return (
               <Link
@@ -39,9 +38,7 @@ function AdminSidebar() {
                 to={item.href}
                 className={
                   `flex items-center justify-between px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    isLogout
-                      ? 'text-red-600 hover:bg-red-50 hover:text-red-700'
-                      : isActive
+                    isActive
                       ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm'
                       : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
                   }`
@@ -49,19 +46,25 @@ function AdminSidebar() {
               >
                 <span>{item.label}</span>
                 <span className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                  isLogout 
-                    ? 'bg-red-400'
-                    : isActive ? 'bg-blue-600' : 'bg-slate-300'
+                  isActive ? 'bg-blue-600' : 'bg-slate-300'
                 }`} />
               </Link>
             )
           })}
         </nav>
 
-        
+        {/* Logout Button */}
+        <div className="px-4 py-6">
+          <button
+            onClick={logout}
+            className="w-full flex items-center justify-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 bg-red-50 text-red-700 hover:bg-red-100"
+          >
+            Logout
+          </button>
+        </div>
       </div>
     </aside>
   )
 }
 
-export default AdminSidebar
+export default AdminSidebar;

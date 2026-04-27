@@ -69,6 +69,9 @@ const PartnerDashboard = () => {
   const [campaigns, setCampaigns] = useState([])
   const [loading, setLoading] = useState(true)
   const [successMessage, setSuccessMessage] = useState(location.state?.message || '')
+  const [activities, setActivities] = useState([])
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState('')
 
   const orgName     = userData?.organizationName || user?.displayName || 'Partner'
   const contactName = userData?.contactName      || '—'
@@ -76,6 +79,42 @@ const PartnerDashboard = () => {
   const phone       = userData?.phone            || '—'
   const description = userData?.description      || ''
   const isApproved  = userData?.status === 'active'
+
+  useEffect(() => {
+    const fetchPartnerActivity = async () => {
+      if (!user) return
+
+      try {
+        setActivityLoading(true)
+        setActivityError('')
+
+        const token = await user.getIdToken()
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3001'
+
+        const response = await fetch(`${backendUrl}/api/activity/partner`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+
+        const data = await response.json()
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Failed to fetch activity log')
+        }
+
+        setActivities(data.activities || [])
+      } catch (err) {
+        console.error('Partner activity fetch failed:', err)
+        setActivityError(err.message || 'Failed to load activity log.')
+        setActivities([])
+      } finally {
+        setActivityLoading(false)
+      }
+    }
+
+    fetchPartnerActivity()
+  }, [user])
 
   useEffect(() => {
     const fetchCampaigns = async () => {
@@ -111,6 +150,25 @@ const PartnerDashboard = () => {
   const recentCampaigns    = [...campaigns]
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
     .slice(0, 4)
+  const visibleActivities = activities.slice(0, 8)
+
+  const getActivityIcon = (type) => {
+    if (type === 'donation') return '💰'
+    if (type === 'claim') return '✅'
+    if (type === 'registration') return '🧾'
+    if (type === 'lifecycle') return '🔒'
+    return '📌'
+  }
+
+  const getActivityTone = (tone) => {
+    const map = {
+      green: 'bg-green-50 text-green-700 border-green-200',
+      blue: 'bg-blue-50 text-blue-700 border-blue-200',
+      purple: 'bg-purple-50 text-purple-700 border-purple-200',
+      slate: 'bg-slate-50 text-slate-700 border-slate-200',
+    }
+    return map[tone] || map.slate
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -208,48 +266,75 @@ const PartnerDashboard = () => {
       {/* ── Main Grid ───────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Recent Campaigns */}
+        {/* Partner Activity Log */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-900">Recent Campaigns</h2>
-            <Link to="/partner/campaigns" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-              View all →
-            </Link>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Activity Log</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                On-chain events from all campaigns launched by your organisation.
+              </p>
+            </div>
           </div>
-          <div className="p-2">
-            {loading ? (
+
+          <div className="divide-y divide-slate-100">
+            {activityLoading ? (
               <div className="flex items-center justify-center py-10">
                 <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
               </div>
-            ) : recentCampaigns.length > 0 ? (
-             recentCampaigns.map(c => (
-                <CampaignRow
-                  key={c.id}
-                  campaign={{
-                    ...c,
-                    goal: c.goalAmount ? Number(c.goalAmount) / 1e6 : 0,
-                    raised: 0,
-                    status: 'active',
-                  }}
-                />
+            ) : activityError ? (
+              <div className="p-5 text-sm text-red-600">
+                {activityError}
+              </div>
+            ) : visibleActivities.length > 0 ? (
+              visibleActivities.map((item) => (
+                <div key={item.id} className="flex items-start gap-4 px-5 py-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-lg">
+                    {getActivityIcon(item.type)}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {item.title}
+                      </p>
+
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getActivityTone(item.tone)}`}>
+                        {item.badge}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      {item.campaignTitle ? `${item.campaignTitle} · ` : ''}
+                      {item.subtitle}
+                    </p>
+
+                    <p className="mt-1 font-mono text-[11px] text-slate-400 break-all">
+                      Tx: {item.txHash}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    {item.amountLabel && (
+                      <p className="text-sm font-semibold text-emerald-600">
+                        {item.amountLabel}
+                      </p>
+                    )}
+                    <p className="mt-1 text-xs font-medium text-slate-500">
+                      {item.relativeTime}
+                    </p>
+                  </div>
+                </div>
               ))
             ) : (
-              <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+              <div className="flex flex-col items-center justify-center py-12 text-center px-6">
                 <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mb-3">
-                  <svg className="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                  <span className="text-xl">📌</span>
                 </div>
-                <p className="text-sm font-medium text-slate-700">No campaigns yet</p>
-                <p className="text-xs text-slate-400 mt-1">Create your first campaign to start raising funds</p>
-                {isApproved && (
-                  <button
-                    onClick={() => navigate('/partner/create')}
-                    className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    Create a campaign →
-                  </button>
-                )}
+                <p className="text-sm font-medium text-slate-700">No on-chain activity yet</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  Campaign events will appear here after transactions are confirmed.
+                </p>
               </div>
             )}
           </div>
@@ -258,59 +343,43 @@ const PartnerDashboard = () => {
         {/* Right Column */}
         <div className="space-y-5">
 
-          {/* Quick Actions */}
+          {/* Recent Campaigns */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100">
-              <h2 className="text-sm font-semibold text-slate-900">Quick Actions</h2>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-900">Recent Campaigns</h2>
+              <Link to="/partner/campaigns" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                View all →
+              </Link>
             </div>
-            <div className="p-3 space-y-2">
-              {[
-                {
-                  label: 'Create Campaign',
-                  desc: isApproved ? 'Launch a new fundraising campaign' : 'Available after approval',
-                  disabled: !isApproved,
-                  color: 'blue',
-                  onClick: () => navigate('/partner/create'),
-                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />,
-                },
-                {
-                  label: 'Register Beneficiaries',
-                  desc: 'Add and verify beneficiaries',
-                  disabled: !isApproved || activeCampaigns === 0,
-                  color: 'green',
-                  onClick: () => navigate('/partner/beneficiaries'),
-                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />,
-                },
-                {
-                  label: 'Process Claims',
-                  desc: 'Scan QR and release funds',
-                  disabled: !isApproved || activeCampaigns === 0,
-                  color: 'purple',
-                  onClick: () => navigate('/partner/claims'),
-                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.243m-4.243 0A9 9 0 1112 21a9 9 0 010-18z" />,
-                },
-              ].map(({ label, desc, disabled, color, onClick, icon }) => (
-                <button
-                  key={label}
-                  onClick={onClick}
-                  disabled={disabled}
-                  className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed text-left transition-all ${
-                    disabled
-                      ? 'border-slate-100 cursor-not-allowed opacity-50'
-                      : `border-${color}-200 hover:border-${color}-400 hover:bg-${color}-50 cursor-pointer`
-                  }`}
-                >
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${disabled ? 'bg-slate-100' : `bg-${color}-100`}`}>
-                    <svg className={`w-4 h-4 ${disabled ? 'text-slate-400' : `text-${color}-600`}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      {icon}
+
+            <div className="p-2">
+              {loading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-blue-600" />
+                </div>
+              ) : recentCampaigns.length > 0 ? (
+                recentCampaigns.map(c => (
+                  <CampaignRow
+                    key={c.id}
+                    campaign={{
+                      ...c,
+                      goal: c.goalAmount ? Number(c.goalAmount) / 1e6 : 0,
+                      raised: c.raised || 0,
+                      status: c.status || 'active',
+                    }}
+                  />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+                  <div className="w-14 h-14 bg-slate-100 rounded-full flex items-center justify-center mb-3">
+                    <svg className="w-7 h-7 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
-                  <div>
-                    <p className={`text-sm font-semibold ${disabled ? 'text-slate-400' : 'text-slate-800'}`}>{label}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{desc}</p>
-                  </div>
-                </button>
-              ))}
+                  <p className="text-sm font-medium text-slate-700">No campaigns yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Create your first campaign to start raising funds</p>
+                </div>
+              )}
             </div>
           </div>
 

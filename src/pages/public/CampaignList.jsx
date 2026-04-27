@@ -33,6 +33,7 @@ function CampaignList() {
         goalAmount: Number(ethers.formatUnits(details._goalAmount.toString(), 6)),
         raisedAmount: Number(ethers.formatUnits(details._raisedAmount.toString(), 6)),
         isActive: details._isActive,
+        donationsOpen: details[13] || false,
       }
     } catch (err) {
       console.error(`Failed to fetch on-chain data for ${campaignAddress}:`, err)
@@ -40,6 +41,7 @@ function CampaignList() {
         goalAmount: 0,
         raisedAmount: 0,
         isActive: false,
+        donationsOpen: false,
       }
     }
   }
@@ -71,6 +73,7 @@ function CampaignList() {
               goalAmount: live.goalAmount || Number(campaign.goalAmount || 0) / 1e6,
               raisedAmount: live.raisedAmount || 0,
               status: live.isActive ? 'active' : 'completed',
+              donationsOpen: live.donationsOpen || false,
             }
           })
         )
@@ -112,82 +115,88 @@ function CampaignList() {
 
   if (loading) {
     return (
-      <div className="py-8 min-h-[70vh] flex items-center justify-center">
-        <p className="text-slate-600">Loading campaigns...</p>
+      <div className="w-screen bg-[#0A0F1E] font-sans min-h-screen flex items-center justify-center">
+        <p className="text-[#6B8CAE] text-lg">Loading campaigns...</p>
       </div>
     )
   }
 
   return (
-    <div className="py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          All Campaigns
-        </h1>
-        <p className="mt-1 text-slate-600">
-          Browse active and completed humanitarian initiatives
-        </p>
-      </div>
+    <div className="w-screen bg-[#0A0F1E] font-sans min-h-screen">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        {/* Header Section */}
+        <div className="mb-12">
+          <h1 className="text-5xl font-bold text-[#E8EDF5] mb-3">
+            All Campaigns
+          </h1>
+          <p className="text-[#6B8CAE] text-lg">
+            Browse active and completed humanitarian initiatives
+          </p>
+        </div>
 
-      <div className="mb-8 relative">
-        <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        {/* Search Section */}
+        <div className="mb-12">
           <SearchBar
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search campaigns..."
           />
         </div>
-      </div>
 
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-slate-600">
-          Showing <span className="font-semibold">{paginatedCampaigns.length}</span> of{' '}
-          <span className="font-semibold">{filteredCampaigns.length}</span> campaigns
-        </p>
-        {totalPages > 0 && (
-          <div className="text-xs text-slate-500">Page {currentPage} of {totalPages}</div>
+        {/* Stats Section */}
+        <div className="mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <p className="text-sm text-[#6B8CAE]">
+            Showing <span className="font-semibold text-[#E8EDF5]">{paginatedCampaigns.length}</span> of{' '}
+            <span className="font-semibold text-[#E8EDF5]">{filteredCampaigns.length}</span> campaigns
+          </p>
+          {totalPages > 0 && (
+            <div className="text-xs text-[#6B8CAE]">Page {currentPage} of {totalPages}</div>
+          )}
+        </div>
+
+        {/* Campaigns Grid or Empty State */}
+        {allCampaigns.length === 0 ? (
+          <div className="rounded-xl border border-[#1E2D42] bg-[#111827] p-16 text-center">
+            <div className="w-16 h-16 bg-[#1E2D42] rounded-full mx-auto mb-6 flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-[#2D4A6F] border-dashed rounded-lg"></div>
+            </div>
+            <h3 className="text-lg font-semibold text-[#E8EDF5] mb-2">No campaigns available yet</h3>
+            <p className="text-base text-[#6B8CAE] mb-1">Campaigns will appear here once they are created and approved.</p>
+            <p className="text-sm text-[#6B8CAE]">Check back soon for humanitarian initiatives to support.</p>
+          </div>
+        ) : paginatedCampaigns.length > 0 ? (
+          <>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mb-12">
+              {paginatedCampaigns.map((campaign) => (
+                <CampaignListItem
+                  key={campaign.id}
+                  title={campaign.title}
+                  location={campaign.location}
+                  raisedAmount={campaign.raisedAmount}
+                  goalAmount={campaign.goalAmount}
+                  status={campaign.status}
+                  campaignAddress={campaign.campaignAddress}
+                  imageUrl={campaign.imageUrl}
+                  donationsOpen={campaign.donationsOpen}
+                />
+              ))}
+            </div>
+
+            <div className="flex justify-center">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="rounded-xl border border-[#1E2D42] bg-[#111827] p-12 text-center">
+            <p className="text-base text-[#6B8CAE]">No campaigns found matching your search.</p>
+            <p className="mt-1 text-sm text-[#6B8CAE]">Try adjusting your search terms.</p>
+          </div>
         )}
       </div>
-
-      {allCampaigns.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-16 text-center">
-          <div className="w-16 h-16 bg-slate-100 rounded-full mx-auto mb-6 flex items-center justify-center">
-            <div className="w-8 h-8 border-2 border-slate-300 border-dashed rounded-lg"></div>
-          </div>
-          <h3 className="text-lg font-semibold text-slate-900 mb-2">No campaigns available yet</h3>
-          <p className="text-base text-slate-600 mb-1">Campaigns will appear here once they are created and approved.</p>
-          <p className="text-sm text-slate-500">Check back soon for humanitarian initiatives to support.</p>
-        </div>
-      ) : paginatedCampaigns.length > 0 ? (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {paginatedCampaigns.map((campaign) => (
-              <CampaignListItem
-                key={campaign.id}
-                title={campaign.title}
-                location={campaign.location}
-                raisedAmount={campaign.raisedAmount}
-                goalAmount={campaign.goalAmount}
-                status={campaign.status}
-                campaignAddress={campaign.campaignAddress}
-                imageUrl={campaign.imageUrl}
-              />
-            ))}
-          </div>
-
-          <div className="mt-12 flex justify-center">
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              onPageChange={setCurrentPage}
-            />
-          </div>
-        </>
-      ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-          <p className="text-base text-slate-600">No campaigns found matching your search.</p>
-          <p className="mt-1 text-sm text-slate-500">Try adjusting your search terms.</p>
-        </div>
-      )}
     </div>
   )
 }

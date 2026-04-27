@@ -46,12 +46,7 @@ function PartnerTopbar() {
         {/* Right — Notifications + User */}
         <div className="flex items-center gap-3">
           {/* Notification bell */}
-          <button className="relative rounded-lg p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-3.86-3.86a4.001 4.001 0 01-1.14-2.82V8a4 4 0 00-8 0v2.32a4.001 4.001 0 01-1.14 2.82L2 17h5m8 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-500" />
-          </button>
+
 
           {/* User info */}
           <div className="flex items-center gap-3">
