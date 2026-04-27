@@ -12,7 +12,6 @@ const AdminDashboard = () => {
     loading, 
     error,
     approvePartner,
-    rejectPartner,
     blockCampaign,
     unblockCampaign,
     approveCampaignClosure
@@ -106,10 +105,10 @@ const AdminDashboard = () => {
             Approve
           </button>
           <button
-            onClick={() => rejectPartner(partner.id)}
-            className="rounded px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors"
+            onClick={() => navigate('/admin/partners')}
+            className="rounded px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-colors"
           >
-            Reject
+            Review
           </button>
         </div>
       ),

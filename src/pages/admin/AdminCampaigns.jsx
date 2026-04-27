@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAdmin } from '../../contexts/AdminContext';
 import FilterBar from '../../components/forms/FilterBar';
-import ActionDropdown from '../../components/common/ActionDropdown';
 import StatCard from '../../components/common/StatCard';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
@@ -41,7 +40,7 @@ const DonationsPill = ({ show, open }) => {
   );
 };
 
-const AdminCampaignCard = ({ campaign, onView, actions }) => {
+const AdminCampaignCard = ({ campaign, onView }) => {
   const raised = Number.isFinite(campaign.amountRaised) ? campaign.amountRaised : 0;
   const goal = Number.isFinite(campaign.goalAmount) ? campaign.goalAmount : 0;
   const pct = goal > 0 ? Math.min((raised / goal) * 100, 100) : 0;
@@ -105,12 +104,6 @@ const AdminCampaignCard = ({ campaign, onView, actions }) => {
               <StatusPill status={campaign.status} />
               <DonationsPill show={campaign.status === 'active'} open={campaign.donationsOpen} />
             </div>
-
-            {actions?.length ? (
-              <div onClick={(e) => e.stopPropagation()}>
-                <ActionDropdown actions={actions} />
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -297,7 +290,6 @@ const AdminCampaigns = () => {
   const activeCampaignsCount = enrichedCampaigns.filter((campaign) => campaign.status === 'active').length;
   const closedCampaignsCount = enrichedCampaigns.filter((campaign) => campaign.status === 'closed').length;
   const onHoldCampaignsCount = enrichedCampaigns.filter((campaign) => campaign.status === 'on_hold').length;
-  const pendingClosureCount = enrichedCampaigns.filter((campaign) => campaign.status === 'pending').length;
 
   const filters = [
     {
@@ -309,37 +301,6 @@ const AdminCampaigns = () => {
     },
   ];
 
-  const getActions = (campaign) => {
-    const actions = [
-      {
-        label: 'View Details',
-        onClick: () => navigate(`/admin/campaigns/${campaign.campaignAddress}`),
-      },
-    ];
-
-    if (campaign.status === 'active') {
-      actions.push({
-        label: 'Hold Campaign',
-        onClick: () => blockCampaign(campaign.id),
-      });
-    }
-
-    if (campaign.status === 'on_hold') {
-      actions.push({
-        label: 'Un-hold Campaign',
-        onClick: () => unblockCampaign(campaign.id),
-      });
-    }
-
-    if (campaign.status === 'pending') {
-      actions.push({
-        label: 'Approve Closure',
-        onClick: () => approveCampaignClosure(campaign.id),
-      });
-    }
-
-    return actions;
-  };
 
   return (
     <div>
@@ -381,12 +342,7 @@ const AdminCampaigns = () => {
               detail="Campaigns put on hold by admin"
               variant="warning"
             />
-            <StatCard
-              label="Awaiting Closure Approval"
-              value={pendingClosureCount}
-              detail="Closure requests pending admin action"
-              variant="danger"
-            />
+
           </div>
           <FilterBar
             searchPlaceholder="Search campaigns by title or partner"
@@ -423,7 +379,6 @@ const AdminCampaigns = () => {
                 <AdminCampaignCard
                   key={campaign.campaignAddress || campaign.id}
                   campaign={campaign}
-                  actions={campaign.campaignAddress ? getActions(campaign) : []}
                   onView={() => navigate(`/admin/campaigns/${campaign.campaignAddress}`)}
                 />
               ))}

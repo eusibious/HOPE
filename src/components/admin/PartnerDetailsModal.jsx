@@ -1,8 +1,17 @@
+import { useEffect, useState } from 'react'
 import Modal from '../ui/Modal'
 import StatusBadge from '../ui/StatusBadge'
 
 function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) {
   if (!partner) return null
+
+  const [rejectionReason, setRejectionReason] = useState('')
+
+  useEffect(() => {
+    if (!isOpen) {
+      setRejectionReason('')
+    }
+  }, [isOpen])
 
   // Ensure partner has required fields with fallbacks
   const partnerData = {
@@ -28,7 +37,9 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
   }
 
   const handleReject = () => {
-    onReject?.(partnerData.id)
+    const reason = rejectionReason.trim()
+    if (!reason) return
+    onReject?.(partnerData.id, reason)
     onClose()
   }
 
@@ -187,13 +198,24 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
                 >
                   Approve Partner
                 </button>
-                <button
-                  type="button"
-                  onClick={handleReject}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-                >
-                  Reject Request
-                </button>
+                <div className="flex-1 space-y-2">
+                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Rejection Reason</label>
+                  <textarea
+                    rows={3}
+                    value={rejectionReason}
+                    onChange={(event) => setRejectionReason(event.target.value)}
+                    placeholder="Provide a brief reason (required)"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleReject}
+                    disabled={!rejectionReason.trim()}
+                    className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-60 disabled:hover:bg-red-600"
+                  >
+                    Reject Request
+                  </button>
+                </div>
               </>
             )}
             {partner.status === 'reviewing' && (
@@ -205,13 +227,24 @@ function PartnerDetailsModal({ isOpen, onClose, partner, onApprove, onReject }) 
                 >
                   Approve Partner
                 </button>
-                <button
-                  type="button"
-                  onClick={handleReject}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-                >
-                  Reject Request
-                </button>
+                <div className="flex-1 space-y-2">
+                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider">Rejection Reason</label>
+                  <textarea
+                    rows={3}
+                    value={rejectionReason}
+                    onChange={(event) => setRejectionReason(event.target.value)}
+                    placeholder="Provide a brief reason (required)"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleReject}
+                    disabled={!rejectionReason.trim()}
+                    className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors disabled:opacity-60 disabled:hover:bg-red-600"
+                  >
+                    Reject Request
+                  </button>
+                </div>
               </>
             )}
           </div>

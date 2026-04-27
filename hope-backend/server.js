@@ -2362,3 +2362,65 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`HOPE backend server running on port ${PORT}`);
 });
+
+// ─── POST /api/reject-partner ───────────────────────────────────────────────
+app.post("/api/reject-partner", verifyAdmin, async (req, res) => {
+  const { partnerId, rejectionReason } = req.body || {};
+
+  if (!partnerId) {
+    return res.status(400).json({ error: "partnerId is required." });
+  }
+
+  if (!rejectionReason || !String(rejectionReason).trim()) {
+    return res.status(400).json({ error: "rejectionReason is required." });
+  }
+
+  const partnerRef = db.collection("partner-requests").doc(partnerId);
+  const partnerDoc = await partnerRef.get();
+
+  if (!partnerDoc.exists) {
+    return res.status(404).json({ error: "Partner request not found." });
+  }
+
+  const partner = partnerDoc.data();
+  const safeReason = String(rejectionReason).trim();
+
+  try {
+    await partnerRef.update({
+      status: "rejected",
+      reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+      rejectionReason: safeReason,
+      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const supportEmail = process.env.SUPPORT_EMAIL || process.env.EMAIL_USER || "support@hope.org";
+    const contactName = partner.contactName || partner.organizationName || "Applicant";
+    const organizationName = partner.organizationName || "your organization";
+
+    await transporter.sendMail({
+      from: `"HOPE Platform" <${process.env.EMAIL_USER}>`,
+      to: partner.email,
+      subject: "HOPE Partnership Application Update",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <p style="color: #374151;">Dear ${contactName},</p>
+
+          <p style="color: #374151;">Thank you for applying to join HOPE.</p>
+
+          <p style="color: #374151;">We regret to inform you that your application for <strong>${organizationName}</strong> was not approved at this time.</p>
+
+          <p style="color: #374151;"><strong>Reason:</strong> ${safeReason}</p>
+
+          <p style="color: #374151;">You may reapply after addressing the above. For queries, contact ${supportEmail}.</p>
+
+          <p style="color: #374151; margin-top: 24px;">Regards,<br/>HOPE Team</p>
+        </div>
+      `,
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Reject partner failed:", error);
+    return res.status(500).json({ error: error?.message || "Failed to reject partner." });
+  }
+});

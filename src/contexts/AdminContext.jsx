@@ -275,13 +275,29 @@ export function AdminProvider({ children }) {
       }
     },
 
-    rejectPartner: async (partnerId) => {
+    rejectPartner: async (partnerId, rejectionReason) => {
       try {
-        const partnerRef = doc(db, 'partner-requests', partnerId)
-        await updateDoc(partnerRef, {
-          status: 'rejected',
-          reviewedAt: new Date().toISOString(),
+        if (!rejectionReason || !String(rejectionReason).trim()) {
+          throw new Error('Rejection reason is required.')
+        }
+
+        const currentUser = getAuth().currentUser
+        if (!currentUser) throw new Error('No authenticated user found.')
+
+        const idToken = await currentUser.getIdToken()
+
+        const response = await fetch(`${BACKEND_URL}/api/reject-partner`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ partnerId, rejectionReason }),
         })
+
+        const result = await response.json()
+        if (!response.ok) throw new Error(result.error || 'Failed to reject partner.')
+
         dispatch({ type: ACTIONS.UPDATE_PARTNER_STATUS, partnerId, status: 'rejected' })
       } catch (error) {
         console.error('Error rejecting partner:', error)

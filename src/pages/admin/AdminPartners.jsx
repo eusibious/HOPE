@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAdmin } from '../../contexts/AdminContext';
 import PartnerDetailsModal from '../../components/admin/PartnerDetailsModal';
-import SearchBar from '../../components/forms/SearchBar';
+import AdminSearchBar from '../../components/admin/AdminSearchBar';
 import Select from '../../components/ui/Select';
 
 const AdminPartners = () => {
@@ -54,7 +54,7 @@ const AdminPartners = () => {
             <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Search for partners
             </label>
-            <SearchBar
+            <AdminSearchBar
               placeholder="Search for partners..."
               value={partnerFilters.search || ''}
               onChange={handleSearchChange}

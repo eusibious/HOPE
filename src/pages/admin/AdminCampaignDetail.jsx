@@ -34,8 +34,9 @@ const formatUSDC = (baseUnits) =>
 const formatDate = (value) => {
   if (!value) return '—';
 
-  if (value?.seconds) {
-    return new Date(value.seconds * 1000).toLocaleDateString('en-IN', {
+  if (value?.seconds || value?._seconds) {
+    const seconds = value.seconds ?? value._seconds;
+    return new Date(seconds * 1000).toLocaleDateString('en-IN', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -62,6 +63,18 @@ const formatDate = (value) => {
 };
 
 const truncateAddress = (addr) => (addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '—');
+
+const truncateMiddle = (value, start = 10, end = 8) => {
+  if (!value) return '—';
+  if (value.length <= start + end) return value;
+  return `${value.slice(0, start)}…${value.slice(-end)}`;
+};
+
+const maskIdNumber = (value) => {
+  if (!value) return '—';
+  if (value.length <= 4) return value;
+  return `${'*'.repeat(Math.max(value.length - 4, 1))}${value.slice(-4)}`;
+};
 
 const getRpcProvider = () => {
   const rpcUrl = import.meta.env.VITE_RPC_URL;
@@ -140,6 +153,8 @@ const AdminCampaignDetail = () => {
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [confirmHold, setConfirmHold] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [copiedValue, setCopiedValue] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -182,6 +197,7 @@ const AdminCampaignDetail = () => {
           ...firestoreData,
           campaignAddress,
           status: derivedStatus,
+          partnerWallet: details._partner,
           isActive: details._isActive,
           isPaused: details._isPaused,
           beneficiariesLocked: details._beneficiariesLocked,
@@ -203,6 +219,18 @@ const AdminCampaignDetail = () => {
 
     fetchData();
   }, [campaignAddress, user?.uid]);
+
+  const handleCopy = async (value) => {
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedValue(value);
+      setTimeout(() => setCopiedValue(''), 1500);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  };
 
   const handleHoldCampaign = async () => {
     setActionLoading(true);
@@ -266,6 +294,16 @@ const AdminCampaignDetail = () => {
     ? ((campaign.claimedCount / campaign.beneficiaryCount) * 100).toFixed(0)
     : 0;
 
+  const createdValue =
+    campaign.createdAt ||
+    campaign.createdOn ||
+    campaign.submittedAt ||
+    campaign.submittedOn ||
+    campaign.createdDate ||
+    null;
+  const hasCampaignCreated = Boolean(createdValue);
+  const hasBeneficiaryCreated = beneficiaries.some((b) => Boolean(b.createdAt));
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <ConfirmModal
@@ -292,7 +330,7 @@ const AdminCampaignDetail = () => {
         <StatusBadge status={campaign.status} />
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+      <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
         <div className="space-y-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{campaign.title}</h1>
@@ -312,7 +350,7 @@ const AdminCampaignDetail = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <code className="text-xs bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 font-mono">
               {campaignAddress}
             </code>
@@ -355,11 +393,11 @@ const AdminCampaignDetail = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white border border-gray-200 rounded-2xl p-6">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
             <h2 className="text-sm font-semibold text-gray-900 mb-4">Campaign Details</h2>
             <div className="divide-y divide-gray-100">
               <DetailRow label="Category" value={campaign.category ?? '—'} />
-              <DetailRow label="Created" value={formatDate(campaign.createdAt)} />
+              {hasCampaignCreated && <DetailRow label="Created" value={formatDate(createdValue)} />}
               <DetailRow label="Deadline" value={formatDate(campaign.deadline)} />
               <DetailRow label="Status" value={campaign.status === 'on_hold' ? '🟡 On Hold' : campaign.status} />
               <DetailRow label="Active On-Chain" value={campaign.isActive ? 'Yes' : 'No'} />
@@ -368,7 +406,16 @@ const AdminCampaignDetail = () => {
               <DetailRow
                 label="Partner Wallet"
                 value={campaign.partnerWallet ? (
-                  <span className="font-mono text-xs text-gray-500">{truncateAddress(campaign.partnerWallet)}</span>
+                  <span className="inline-flex items-center gap-2">
+                    <span className="font-mono text-xs text-gray-500">{campaign.partnerWallet}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(campaign.partnerWallet)}
+                      className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+                    >
+                      {copiedValue === campaign.partnerWallet ? 'Copied' : 'Copy'}
+                    </button>
+                  </span>
                 ) : '—'}
               />
               {campaign.documentCID && (
@@ -389,42 +436,131 @@ const AdminCampaignDetail = () => {
             </div>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-2xl p-6">
-            <h2 className="text-sm font-semibold text-gray-900 mb-4">Registered Beneficiaries</h2>
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Registered Beneficiaries</h2>
+                <p className="text-xs text-gray-500 mt-1">Full beneficiary records (read-only).</p>
+              </div>
+              <div className="text-xs text-gray-400">{beneficiaries.length} records</div>
+            </div>
             {beneficiaries.length === 0 ? (
               <p className="text-sm text-gray-500">No beneficiaries registered yet.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Full Name</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Age Band</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Gender</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">ID Type</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Registered At</th>
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Beneficiary</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Identity</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Record Trail</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Status</th>
+                      {hasBeneficiaryCreated && (
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Created</th>
+                      )}
                     </tr>
                   </thead>
-                  <tbody>
-                    {beneficiaries.map((beneficiary) => (
-                      <tr key={beneficiary.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="px-4 py-3 text-gray-900">{beneficiary.fullName || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{beneficiary.age ? `${beneficiary.age} years` : '—'}</td>
-                        <td className="px-4 py-3 text-gray-600 capitalize">{beneficiary.gender || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{beneficiary.idType || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                            beneficiary.status === 'claimed'
-                              ? 'bg-green-50 text-green-700'
-                              : beneficiary.status === 'registered'
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'bg-gray-100 text-gray-600'
-                          }`}>
-                            {beneficiary.status || 'draft'}
-                          </span>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {beneficiaries.map((b) => (
+                      <tr key={b.id} className="align-top">
+                        <td className="px-4 py-4">
+                          <div className="flex items-start gap-3">
+                            {b.photoUrls?.selfie ? (
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPhoto(b.photoUrls.selfie)}
+                                className="h-11 w-11 overflow-hidden rounded-lg border border-gray-200 bg-gray-100"
+                              >
+                                <img
+                                  src={b.photoUrls.selfie}
+                                  alt={b.fullName || 'Beneficiary'}
+                                  className="h-full w-full object-cover transition-transform hover:scale-105"
+                                />
+                              </button>
+                            ) : (
+                              <div className="h-11 w-11 rounded-lg border border-gray-200 bg-gray-100" />
+                            )}
+
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {b.fullName || '—'}
+                              </div>
+                              <div className="mt-1 text-xs text-gray-500">
+                                Age: {b.age ?? '—'} • Gender: {b.gender || '—'}
+                              </div>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{formatDate(beneficiary.createdAt)}</td>
+
+                        <td className="px-4 py-4 text-sm text-gray-700">
+                          <div>{b.idType || '—'}</div>
+                          <div className="mt-1 text-xs text-gray-500 break-all">
+                            {maskIdNumber(b.idNumber || b.normalizedIdNumber)}
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4 text-xs text-gray-700">
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-[11px] text-gray-400">Beneficiary CID</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono break-all">{b.beneficiaryCID || '—'}</span>
+                                {b.beneficiaryCID && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(b.beneficiaryCID)}
+                                    className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+                                  >
+                                    {copiedValue === b.beneficiaryCID ? 'Copied' : 'Copy'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[11px] text-gray-400">Manifest CID</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono break-all">
+                                  {b.finalManifestCID || b.manifestCID || '—'}
+                                </span>
+                                {(b.finalManifestCID || b.manifestCID) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(b.finalManifestCID || b.manifestCID)}
+                                    className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-50"
+                                  >
+                                    {copiedValue === (b.finalManifestCID || b.manifestCID) ? 'Copied' : 'Copy'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col gap-2">
+                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
+                              b.status === 'claimed'
+                                ? 'bg-green-50 text-green-700'
+                                : b.status === 'registered'
+                                ? 'bg-blue-50 text-blue-700'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {b.status || 'draft'}
+                            </span>
+                            <span className="text-[11px] text-gray-500">On-chain: {b.onChainRegistered ? 'Yes' : 'No'}</span>
+                            {b.registrationTxHash && (
+                              <span className="text-[11px] font-mono text-gray-400 break-all">
+                                Tx: {truncateMiddle(b.registrationTxHash, 12, 8)}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
+                        {hasBeneficiaryCreated && (
+                          <td className="px-4 py-4 text-xs text-gray-600">
+                            {formatDate(b.createdAt)}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -435,7 +571,7 @@ const AdminCampaignDetail = () => {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+          <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">Admin Actions</h2>
             <div className="space-y-3">
               {campaign.status === 'active' ? (
@@ -500,6 +636,32 @@ const AdminCampaignDetail = () => {
           )}
         </div>
       </div>
+
+      {selectedPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div
+            className="relative max-h-[90vh] max-w-3xl rounded-2xl bg-white p-3 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto(null)}
+              className="absolute -right-3 -top-3 rounded-full bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow"
+            >
+              ×
+            </button>
+
+            <img
+              src={selectedPhoto}
+              alt="Beneficiary"
+              className="max-h-[80vh] max-w-full rounded-xl object-contain"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
